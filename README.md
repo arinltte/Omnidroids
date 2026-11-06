@@ -73,15 +73,32 @@ cp .env.example .env
 cd frontend && npm install && npm run build && cd ..
 ```
 
-Run the backend (Phase 0–1 — the `/v1` endpoint routes to a local model that is
-**hard-unloaded** when the phase/task finishes; see below):
+### Run — `./Omnidroids.sh` (macOS) / `Omnidroids.bat` (Windows)
+
+The launcher is the supported entry point (single process — the backend serves
+both the API and the built SPA at http://localhost:5001; no Node/Vite server at
+runtime):
+
+1. installs deps only when missing (`uv sync`, `npm install`);
+2. builds the SPA once if `frontend/dist` is absent (`npm run build`);
+3. exports `HF_HOME=<repo>/.cache/hf` — every HuggingFace artifact stays inside
+   the folder;
+4. starts the backend and opens **only** the main page;
+5. stops with **SIGTERM only** (`Ctrl+C`) — never `kill -9` (Kuzu WAL).
 
 ```bash
-cd backend && uv run python run.py     # serves API on http://localhost:5001
+./Omnidroids.sh                    # macOS (double-click works; right-click -> Open if blocked)
+OPEN_BROWSER=0 ./Omnidroids.sh     # don't auto-open the browser
 ```
 
-A unified `Omnidroids.sh` / `Omnidroids.bat` launcher (single process, opens only
-the main page, no Node dev server at runtime) arrives in a later phase.
+On Windows: double-click `Omnidroids.bat`. Stop by closing the backend window
+(or the launcher window); never `taskkill /f` the backend.
+
+Run the backend directly instead (useful for development):
+
+```bash
+cd backend && uv run python run.py     # API + built SPA on http://localhost:5001
+```
 
 ## Model runtime (Phase 1)
 

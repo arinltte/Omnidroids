@@ -9,7 +9,7 @@ import warnings
 # 需要在所有其他导入之前设置
 warnings.filterwarnings("ignore", message=".*resource_tracker.*")
 
-from flask import Flask, request
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
 from .config import Config
@@ -103,8 +103,44 @@ def create_app(config_class=Config):
     def health():
         return {'status': 'ok', 'service': 'MiroFish Backend'}
     
+    # §10：托管前端构建产物（frontend/dist）——最后注册，保证 API 路由的优先级。
+    _register_spa_serving(app)
+    
     if should_log_startup:
         logger.info("MiroFish Backend 启动完成")
     
     return app
+
+
+def _register_spa_serving(app):
+    """HANDOFF §10：由后端单进程托管构建后的 Vue SPA（替代 Node/Vite 开发服务器）。
+
+    - 真实文件（/assets/... 等）直接从 frontend/dist 返回；
+    - 其余 GET 请求回退到 index.html（vue-router history 模式）；
+    - /api、/v1、/health 前缀绝不落入 SPA 壳（返回 API 404）。
+    dist 目录不存在时静默跳过（开发期未构建的降级）。
+    """
+
+    dist_dir = Config.FRONTEND_DIST_DIR
+    if not dist_dir or not os.path.isdir(dist_dir):
+        return
+    index_path = os.path.join(dist_dir, 'index.html')
+    if not os.path.isfile(index_path):
+        return
+
+    api_prefixes = ('api/', 'v1/')  # /health 由上面的静态路由优先匹配
+
+    @app.route('/', methods=['GET'])
+    def spa_index():
+        return send_from_directory(dist_dir, 'index.html')
+
+    @app.route('/<path:path>', methods=['GET'])
+    def spa_fallback(path):
+        if path.startswith(api_prefixes):
+            return jsonify({'code': 404, 'message': 'Not Found'}), 404
+        target = os.path.join(dist_dir, path)
+        if os.path.isfile(target):
+            return send_from_directory(dist_dir, path)
+        # history 模式：未知前端路由一律回退到 index.html
+        return send_from_directory(dist_dir, 'index.html')
 

@@ -81,6 +81,13 @@ class Config:
         """只有 Zep Cloud 后端才强制 ZEP_API_KEY。"""
         return not cls.is_local_graph_backend()
     
+    # 前端构建产物目录（§10：后端托管 SPA，单进程 :5001，无 Node/Vite 运行时）。
+    # 缺失时后端仅提供 API（开发期未构建时的降级行为）。
+    FRONTEND_DIST_DIR = os.environ.get(
+        'FRONTEND_DIST_DIR',
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '../../frontend/dist'))
+    )
+    
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), '../uploads')
