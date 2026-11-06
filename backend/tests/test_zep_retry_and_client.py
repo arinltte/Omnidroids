@@ -49,6 +49,15 @@ def test_rate_limit_retry_respects_retry_after():
     assert sleeps == [7.0]
 
 
+def _use_zep_cloud_backend(monkeypatch):
+    """#15: the default backend is now local Graphiti — these three tests cover the
+    Zep Cloud branch of get_zep_client, so pin that branch explicitly."""
+
+    from app.config import Config
+    monkeypatch.setattr(Config, "is_local_graph_backend", classmethod(lambda cls: False))
+    zep.clear_zep_client_cache()
+
+
 def test_zep_client_is_shared_and_uses_an_explicit_timeout(monkeypatch):
     created = []
 
@@ -60,6 +69,7 @@ def test_zep_client_is_shared_and_uses_an_explicit_timeout(monkeypatch):
     monkeypatch.setattr(zep, "Zep", fake_zep)
     zep.clear_zep_client_cache()
 
+    _use_zep_cloud_backend(monkeypatch)
     first = zep.get_zep_client(" test-key ", timeout=12)
     second = zep.get_zep_client("test-key", timeout=12)
 
@@ -74,6 +84,7 @@ def test_zep_client_is_shared_and_uses_an_explicit_timeout(monkeypatch):
 
 def test_zep_client_rejects_self_hosted_endpoint_override(monkeypatch):
     monkeypatch.setenv("ZEP_API_URL", "https://example.invalid")
+    _use_zep_cloud_backend(monkeypatch)
 
     with pytest.raises(ValueError, match="ZEP_API_URL"):
         zep.get_zep_client("test-key")
@@ -92,6 +103,7 @@ def test_zep_client_uses_internal_timeout_and_ignores_env_overrides(monkeypatch)
     monkeypatch.setattr(zep, "Zep", fake_zep)
     zep.clear_zep_client_cache()
 
+    _use_zep_cloud_backend(monkeypatch)
     zep.get_zep_client("test-key")
 
     assert created == [{

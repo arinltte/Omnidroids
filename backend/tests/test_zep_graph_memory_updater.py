@@ -187,7 +187,10 @@ def test_pending_episode_wait_has_a_deadline(monkeypatch):
         processed=False
     )
     timestamps = iter([0.0, 2.0])
-    monkeypatch.setattr(updater_module, "ZEP_INGESTION_WAIT_TIMEOUT_SECONDS", 1)
+    # #15: the timeout constant moved to app/utils/zep.py in the local-backend
+    # refactor. This test pins the *explicit caller deadline* contract that
+    # b2765e0 restored (a stuck episode must fail, not spin forever).
+    monkeypatch.setattr(updater_module, "ingestion_wait_timeout", lambda default=None: 1)
     monkeypatch.setattr(updater_module.time, "time", lambda: next(timestamps))
     monkeypatch.setattr(updater_module.time, "sleep", lambda _seconds: None)
 
