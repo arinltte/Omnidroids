@@ -6,6 +6,7 @@
       <div class="nav-links">
         <router-link to="/models" class="nav-link">{{ $t('nav.models') }}</router-link>
         <LanguageSwitcher />
+        <AppearanceSwitcher />
         <a href="https://github.com/arinltte/Omnidroids" target="_blank" class="github-link">
           {{ $t('nav.visitGithub') }} <span class="arrow">↗</span>
         </a>
@@ -217,6 +218,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import AppearanceSwitcher from '../components/AppearanceSwitcher.vue'
 
 const router = useRouter()
 
@@ -314,21 +316,7 @@ const startSimulation = () => {
 
 <style scoped>
 /* 全局变量与重置 */
-:root {
-  --black: #000000;
-  --white: #FFFFFF;
-  --orange: #FF4500;
-  --gray-light: #F5F5F5;
-  --gray-text: #666666;
-  --border: #E5E5E5;
-  /* 
-    使用 Space Grotesk 作为主要标题字体，JetBrains Mono 作为代码/标签字体
-    确保已在 index.html 引入这些 Google Fonts 
-  */
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-sans: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
-  --font-cn: 'Noto Sans SC', system-ui, sans-serif;
-}
+/* appearance tokens come from assets/theme.css (§9.2) */
 
 .home-container {
   min-height: 100vh;
@@ -362,7 +350,7 @@ const startSimulation = () => {
 }
 
 .nav-link {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--on-ink);
   text-decoration: none;
   font-family: var(--font-mono);
   font-size: 0.8rem;
@@ -442,7 +430,7 @@ const startSimulation = () => {
 }
 
 .version-text {
-  color: #999;
+  color: var(--gray-text);
   font-weight: 500;
   letter-spacing: 0.5px;
 }
@@ -457,7 +445,7 @@ const startSimulation = () => {
 }
 
 .gradient-text {
-  background: linear-gradient(90deg, #000000 0%, #444444 100%);
+  background: linear-gradient(90deg, var(--black) 0%, #444444 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   display: inline-block;
@@ -586,7 +574,7 @@ const startSimulation = () => {
 .panel-header {
   font-family: var(--font-mono);
   font-size: 0.8rem;
-  color: #999;
+  color: var(--gray-text);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -631,7 +619,7 @@ const startSimulation = () => {
 
 .metric-label {
   font-size: 0.85rem;
-  color: #999;
+  color: var(--gray-text);
 }
 
 /* 项目模拟步骤介绍 */
@@ -644,7 +632,7 @@ const startSimulation = () => {
 .steps-header {
   font-family: var(--font-mono);
   font-size: 0.8rem;
-  color: #999;
+  color: var(--gray-text);
   margin-bottom: 25px;
   display: flex;
   align-items: center;
@@ -696,7 +684,7 @@ const startSimulation = () => {
 }
 
 .console-box {
-  border: 1px solid #CCC; /* 外部实线 */
+  border: 1px solid var(--border); /* 外部实线 */
   padding: 8px; /* 内边距形成双重边框感 */
 }
 
@@ -714,11 +702,11 @@ const startSimulation = () => {
   margin-bottom: 15px;
   font-family: var(--font-mono);
   font-size: 0.75rem;
-  color: #666;
+  color: var(--gray-text);
 }
 
 .upload-zone {
-  border: 1px dashed #CCC;
+  border: 1px dashed var(--border);
   height: 200px;
   overflow-y: auto;
   display: flex;
@@ -726,7 +714,7 @@ const startSimulation = () => {
   justify-content: center;
   cursor: pointer;
   transition: all 0.3s;
-  background: #FAFAFA;
+  background: var(--gray-light);
 }
 
 .upload-zone.has-files {
@@ -734,8 +722,8 @@ const startSimulation = () => {
 }
 
 .upload-zone:hover {
-  background: #F0F0F0;
-  border-color: #999;
+  background: var(--gray-light);
+  border-color: var(--gray-text);
 }
 
 .upload-placeholder {
@@ -745,12 +733,12 @@ const startSimulation = () => {
 .upload-icon {
   width: 40px;
   height: 40px;
-  border: 1px solid #DDD;
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0 auto 15px;
-  color: #999;
+  color: var(--gray-text);
 }
 
 .upload-title {
@@ -762,7 +750,7 @@ const startSimulation = () => {
 .upload-hint {
   font-family: var(--font-mono);
   font-size: 0.75rem;
-  color: #999;
+  color: var(--gray-text);
 }
 
 .file-list {
@@ -793,7 +781,7 @@ const startSimulation = () => {
   border: none;
   cursor: pointer;
   font-size: 1.2rem;
-  color: #999;
+  color: var(--gray-text);
 }
 
 .console-divider {
@@ -820,8 +808,8 @@ const startSimulation = () => {
 
 .input-wrapper {
   position: relative;
-  border: 1px solid #DDD;
-  background: #FAFAFA;
+  border: 1px solid var(--border);
+  background: var(--gray-light);
 }
 
 .code-input {
@@ -883,11 +871,11 @@ const startSimulation = () => {
 }
 
 .start-engine-btn:disabled {
-  background: #E5E5E5;
-  color: #999;
+  background: var(--border);
+  color: var(--gray-text);
   cursor: not-allowed;
   transform: none;
-  border: 1px solid #E5E5E5;
+  border: 1px solid var(--border);
 }
 
 /* 引导动画：微妙的边框脉冲 */

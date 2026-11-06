@@ -811,7 +811,7 @@ const startPrepareSimulation = async () => {
       // 立即设置预期Agent总数（从prepare接口返回值获取）
       if (res.data.expected_entities_count) {
         expectedTotal.value = res.data.expected_entities_count
-        addLog(t('log.zepEntitiesFound', { count: res.data.expected_entities_count }))
+        addLog(t('log.graphitiEntitiesFound', { count: res.data.expected_entities_count }))
         if (res.data.entity_types && res.data.entity_types.length > 0) {
           addLog(t('log.entityTypes', { types: res.data.entity_types.join(', ') }))
         }
@@ -1106,7 +1106,7 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #FAFAFA;
+  background: var(--gray-light);
   font-family: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
 }
 
@@ -1121,11 +1121,11 @@ onUnmounted(() => {
 
 /* Step Card */
 .step-card {
-  background: #FFF;
+  background: var(--white);
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-  border: 1px solid #EAEAEA;
+  border: 1px solid var(--border);
   transition: all 0.3s ease;
   position: relative;
 }
@@ -1152,12 +1152,12 @@ onUnmounted(() => {
   font-family: 'JetBrains Mono', monospace;
   font-size: 20px;
   font-weight: 700;
-  color: #E0E0E0;
+  color: var(--border);
 }
 
 .step-card.active .step-num,
 .step-card.completed .step-num {
-  color: #000;
+  color: var(--black);
 }
 
 .step-title {
@@ -1175,8 +1175,8 @@ onUnmounted(() => {
 }
 
 .badge.success { background: #E8F5E9; color: #2E7D32; }
-.badge.processing { background: #FF5722; color: #FFF; }
-.badge.pending { background: #F5F5F5; color: #999; }
+.badge.processing { background: #FF5722; color: var(--white); }
+.badge.pending { background: var(--gray-light); color: var(--gray-text); }
 .badge.accent { background: #E3F2FD; color: #1565C0; }
 
 .card-content {
@@ -1186,13 +1186,13 @@ onUnmounted(() => {
 .api-note {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: #999;
+  color: var(--gray-text);
   margin-bottom: 8px;
 }
 
 .description {
   font-size: 12px;
-  color: #666;
+  color: var(--gray-text);
   line-height: 1.5;
   margin-bottom: 16px;
 }
@@ -1216,8 +1216,8 @@ onUnmounted(() => {
 }
 
 .action-btn.primary {
-  background: #000;
-  color: #FFF;
+  background: var(--black);
+  color: var(--white);
 }
 
 .action-btn.primary:hover:not(:disabled) {
@@ -1225,12 +1225,12 @@ onUnmounted(() => {
 }
 
 .action-btn.secondary {
-  background: #F5F5F5;
-  color: #333;
+  background: var(--gray-light);
+  color: var(--ink-muted);
 }
 
 .action-btn.secondary:hover:not(:disabled) {
-  background: #E5E5E5;
+  background: var(--border);
 }
 
 .action-btn:disabled {
@@ -1255,7 +1255,7 @@ onUnmounted(() => {
 
 /* Info Card */
 .info-card {
-  background: #F5F5F5;
+  background: var(--gray-light);
   border-radius: 6px;
   padding: 16px;
   margin-top: 16px;
@@ -1266,7 +1266,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px dashed #E0E0E0;
+  border-bottom: 1px dashed var(--border);
 }
 
 .info-row:last-child {
@@ -1275,7 +1275,7 @@ onUnmounted(() => {
 
 .info-label {
   font-size: 12px;
-  color: #666;
+  color: var(--gray-text);
 }
 
 .info-value {
@@ -1293,7 +1293,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 12px;
-  background: #F9F9F9;
+  background: var(--gray-light);
   padding: 16px;
   border-radius: 6px;
 }
@@ -1306,13 +1306,13 @@ onUnmounted(() => {
   display: block;
   font-size: 20px;
   font-weight: 700;
-  color: #000;
+  color: var(--black);
   font-family: 'JetBrains Mono', monospace;
 }
 
 .stat-label {
   font-size: 9px;
-  color: #999;
+  color: var(--gray-text);
   text-transform: uppercase;
   margin-top: 4px;
   display: block;
@@ -1321,7 +1321,7 @@ onUnmounted(() => {
 /* Profiles Preview */
 .profiles-preview {
   margin-top: 20px;
-  border-top: 1px solid #E5E5E5;
+  border-top: 1px solid var(--border);
   padding-top: 16px;
 }
 
@@ -1335,7 +1335,7 @@ onUnmounted(() => {
 .preview-title {
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -1354,17 +1354,17 @@ onUnmounted(() => {
 }
 
 .profiles-list::-webkit-scrollbar-thumb {
-  background: #DDD;
+  background: var(--border);
   border-radius: 2px;
 }
 
 .profiles-list::-webkit-scrollbar-thumb:hover {
-  background: #CCC;
+  background: var(--border);
 }
 
 .profile-card {
-  background: #FAFAFA;
-  border: 1px solid #E5E5E5;
+  background: var(--gray-light);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 14px;
   cursor: pointer;
@@ -1372,8 +1372,8 @@ onUnmounted(() => {
 }
 
 .profile-card:hover {
-  border-color: #999;
-  background: #FFF;
+  border-color: var(--gray-text);
+  background: var(--white);
 }
 
 .profile-header {
@@ -1386,13 +1386,13 @@ onUnmounted(() => {
 .profile-realname {
   font-size: 14px;
   font-weight: 700;
-  color: #000;
+  color: var(--black);
 }
 
 .profile-username {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: #999;
+  color: var(--gray-text);
 }
 
 .profile-meta {
@@ -1401,8 +1401,8 @@ onUnmounted(() => {
 
 .profile-profession {
   font-size: 11px;
-  color: #666;
-  background: #F0F0F0;
+  color: var(--gray-text);
+  background: var(--gray-light);
   padding: 2px 8px;
   border-radius: 3px;
 }
@@ -1434,7 +1434,7 @@ onUnmounted(() => {
 
 .topic-more {
   font-size: 10px;
-  color: #999;
+  color: var(--gray-text);
   padding: 2px 6px;
 }
 
@@ -1446,7 +1446,7 @@ onUnmounted(() => {
 
 .config-block {
   margin-top: 16px;
-  border-top: 1px solid #E5E5E5;
+  border-top: 1px solid var(--border);
   padding-top: 12px;
 }
 
@@ -1466,7 +1466,7 @@ onUnmounted(() => {
 .config-block-title {
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -1488,7 +1488,7 @@ onUnmounted(() => {
 }
 
 .config-item {
-  background: #F9F9F9;
+  background: var(--gray-light);
   padding: 12px 14px;
   border-radius: 6px;
   display: flex;
@@ -1521,7 +1521,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  background: #F9F9F9;
+  background: var(--gray-light);
   border-radius: 6px;
 }
 
@@ -1564,25 +1564,25 @@ onUnmounted(() => {
 }
 
 .agents-cards::-webkit-scrollbar-thumb {
-  background: #DDD;
+  background: var(--border);
   border-radius: 2px;
 }
 
 .agents-cards::-webkit-scrollbar-thumb:hover {
-  background: #CCC;
+  background: var(--border);
 }
 
 .agent-card {
-  background: #F9F9F9;
-  border: 1px solid #E5E5E5;
+  background: var(--gray-light);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 14px;
   transition: all 0.2s ease;
 }
 
 .agent-card:hover {
-  border-color: #999;
-  background: #FFF;
+  border-color: var(--gray-text);
+  background: var(--white);
 }
 
 /* Agent Card Header */
@@ -1766,7 +1766,7 @@ onUnmounted(() => {
 }
 
 .platform-card {
-  background: #F9F9F9;
+  background: var(--gray-light);
   padding: 14px;
   border-radius: 6px;
 }
@@ -1774,13 +1774,13 @@ onUnmounted(() => {
 .platform-card-header {
   margin-bottom: 10px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #E5E5E5;
+  border-bottom: 1px solid var(--border);
 }
 
 .platform-name {
   font-size: 13px;
   font-weight: 600;
-  color: #333;
+  color: var(--ink-muted);
 }
 
 .platform-params {
@@ -1816,7 +1816,7 @@ onUnmounted(() => {
 
 .reasoning-item {
   padding: 12px 14px;
-  background: #F9F9F9;
+  background: var(--gray-light);
   border-radius: 6px;
 }
 
@@ -1843,7 +1843,7 @@ onUnmounted(() => {
 }
 
 .profile-modal {
-  background: #FFF;
+  background: var(--white);
   border-radius: 16px;
   width: 90%;
   max-width: 600px;
@@ -1859,8 +1859,8 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: flex-start;
   padding: 24px;
-  background: #FFF;
-  border-bottom: 1px solid #F0F0F0;
+  background: var(--white);
+  border-bottom: 1px solid var(--gray-light);
 }
 
 .modal-header-info {
@@ -1877,19 +1877,19 @@ onUnmounted(() => {
 .modal-realname {
   font-size: 20px;
   font-weight: 700;
-  color: #000;
+  color: var(--black);
 }
 
 .modal-username {
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
-  color: #999;
+  color: var(--gray-text);
 }
 
 .modal-profession {
   font-size: 12px;
-  color: #666;
-  background: #F5F5F5;
+  color: var(--gray-text);
+  background: var(--gray-light);
   padding: 4px 10px;
   border-radius: 4px;
   display: inline-block;
@@ -1901,7 +1901,7 @@ onUnmounted(() => {
   height: 32px;
   border: none;
   background: none;
-  color: #999;
+  color: var(--gray-text);
   border-radius: 50%;
   font-size: 24px;
   cursor: pointer;
@@ -1914,7 +1914,7 @@ onUnmounted(() => {
 }
 
 .close-btn:hover {
-  color: #333;
+  color: var(--ink-muted);
 }
 
 .modal-body {
@@ -1942,7 +1942,7 @@ onUnmounted(() => {
 
 .info-label {
   font-size: 11px;
-  color: #999;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -1951,7 +1951,7 @@ onUnmounted(() => {
 .info-value {
   font-size: 15px;
   font-weight: 600;
-  color: #333;
+  color: var(--ink-muted);
 }
 
 .info-value.mbti {
@@ -1968,7 +1968,7 @@ onUnmounted(() => {
   display: block;
   font-size: 11px;
   font-weight: 600;
-  color: #999;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 12px;
@@ -1976,13 +1976,13 @@ onUnmounted(() => {
 
 .section-bio {
   font-size: 14px;
-  color: #333;
+  color: var(--ink-muted);
   line-height: 1.6;
   margin: 0;
   padding: 16px;
-  background: #F9F9F9;
+  background: var(--gray-light);
   border-radius: 6px;
-  border-left: 3px solid #E0E0E0;
+  border-left: 3px solid var(--border);
 }
 
 /* 话题标签 */
@@ -2019,20 +2019,20 @@ onUnmounted(() => {
   background: #F8F9FA;
   padding: 12px;
   border-radius: 6px;
-  border-left: 3px solid #DDD;
+  border-left: 3px solid var(--border);
   transition: all 0.2s;
 }
 
 .dimension-card:hover {
-  background: #F0F0F0;
-  border-left-color: #999;
+  background: var(--gray-light);
+  border-left-color: var(--gray-text);
 }
 
 .dim-title {
   display: block;
   font-size: 12px;
   font-weight: 700;
-  color: #333;
+  color: var(--ink-muted);
   margin-bottom: 4px;
 }
 
@@ -2057,7 +2057,7 @@ onUnmounted(() => {
 }
 
 .persona-content::-webkit-scrollbar-thumb {
-  background: #DDD;
+  background: var(--border);
   border-radius: 2px;
 }
 
@@ -2071,8 +2071,8 @@ onUnmounted(() => {
 
 /* System Logs */
 .system-logs {
-  background: #000;
-  color: #DDD;
+  background: var(--black);
+  color: var(--border);
   padding: 16px;
   font-family: 'JetBrains Mono', monospace;
   border-top: 1px solid #222;
@@ -2082,7 +2082,7 @@ onUnmounted(() => {
 .log-header {
   display: flex;
   justify-content: space-between;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--ink-muted);
   padding-bottom: 8px;
   margin-bottom: 8px;
   font-size: 10px;
@@ -2103,7 +2103,7 @@ onUnmounted(() => {
 }
 
 .log-content::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--ink-muted);
   border-radius: 2px;
 }
 
@@ -2115,12 +2115,12 @@ onUnmounted(() => {
 }
 
 .log-time {
-  color: #666;
+  color: var(--gray-text);
   min-width: 75px;
 }
 
 .log-msg {
-  color: #CCC;
+  color: var(--border);
   word-break: break-all;
 }
 
@@ -2128,7 +2128,7 @@ onUnmounted(() => {
 .spinner-sm {
   width: 16px;
   height: 16px;
-  border: 2px solid #E5E5E5;
+  border: 2px solid var(--border);
   border-top-color: #FF5722;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -2149,14 +2149,14 @@ onUnmounted(() => {
   display: block;
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 12px;
 }
 
 .narrative-box {
-  background: #FFFFFF;
+  background: var(--white);
   padding: 20px 24px;
   border-radius: 12px;
   border: 1px solid #EEF2F6;
@@ -2168,7 +2168,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #666;
+  color: var(--gray-text);
   font-size: 13px;
   letter-spacing: 0.5px;
   margin-bottom: 12px;
@@ -2195,7 +2195,7 @@ onUnmounted(() => {
 }
 
 .topics-section {
-  background: #FFF;
+  background: var(--white);
 }
 
 .hot-topics-grid {
@@ -2215,12 +2215,12 @@ onUnmounted(() => {
 
 .hot-topic-more {
   font-size: 11px;
-  color: #999;
+  color: var(--gray-text);
   padding: 4px 6px;
 }
 
 .initial-posts-section {
-  border-top: 1px solid #EAEAEA;
+  border-top: 1px solid var(--border);
   padding-top: 16px;
 }
 
@@ -2229,7 +2229,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 16px;
   padding-left: 8px;
-  border-left: 2px solid #F0F0F0;
+  border-left: 2px solid var(--gray-light);
   margin-top: 12px;
 }
 
@@ -2244,11 +2244,11 @@ onUnmounted(() => {
   top: 14px;
   width: 12px;
   height: 2px;
-  background: #DDD;
+  background: var(--border);
 }
 
 .timeline-content {
-  background: #F9F9F9;
+  background: var(--gray-light);
   padding: 12px;
   border-radius: 6px;
   border: 1px solid #EEE;
@@ -2263,7 +2263,7 @@ onUnmounted(() => {
 .post-role {
   font-size: 11px;
   font-weight: 700;
-  color: #333;
+  color: var(--ink-muted);
   text-transform: uppercase;
 }
 
@@ -2277,7 +2277,7 @@ onUnmounted(() => {
 .post-username {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: #666;
+  color: var(--gray-text);
   line-height: 1;
   vertical-align: baseline;
 }
@@ -2297,7 +2297,7 @@ onUnmounted(() => {
 .rounds-config-section {
   margin: 24px 0;
   padding-top: 24px;
-  border-top: 1px solid #EAEAEA;
+  border-top: 1px solid var(--border);
 }
 
 .rounds-header {
@@ -2369,14 +2369,14 @@ onUnmounted(() => {
   top: 2px;
   width: 16px;
   height: 16px;
-  background: #FFF;
+  background: var(--white);
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
 }
 
 .switch-control input:checked + .switch-track {
-  background: #000;
+  background: var(--black);
 }
 
 .switch-control input:checked + .switch-track::after {
@@ -2415,12 +2415,12 @@ onUnmounted(() => {
   font-family: 'JetBrains Mono', monospace;
   font-size: 24px;
   font-weight: 700;
-  color: #000;
+  color: var(--black);
 }
 
 .val-unit {
   font-size: 12px;
-  color: #666;
+  color: var(--gray-text);
   font-weight: 500;
 }
 
@@ -2445,7 +2445,7 @@ onUnmounted(() => {
   background: #E2E8F0;
   border-radius: 2px;
   outline: none;
-  background-image: linear-gradient(#000, #000);
+  background-image: linear-gradient(var(--black), var(--black));
   background-size: var(--percent, 0%) 100%;
   background-repeat: no-repeat;
   cursor: pointer;
@@ -2456,8 +2456,8 @@ onUnmounted(() => {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #FFF;
-  border: 2px solid #000;
+  background: var(--white);
+  border: 2px solid var(--black);
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0,0,0,0.1);
   transition: transform 0.1s;
@@ -2490,11 +2490,11 @@ onUnmounted(() => {
 }
 
 .mark-recommend:hover {
-  color: #000;
+  color: var(--black);
 }
 
 .mark-recommend.active {
-  color: #000;
+  color: var(--black);
   font-weight: 600;
 }
 
@@ -2549,7 +2549,7 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 500;
   color: #64748B;
-  background: #FFFFFF;
+  background: var(--white);
   border: 1px solid #E2E8F0;
   padding: 3px 8px;
   border-radius: 6px;
@@ -2572,7 +2572,7 @@ onUnmounted(() => {
 .highlight-tip {
   margin-top: 4px !important;
   font-size: 12px !important;
-  color: #000 !important;
+  color: var(--black) !important;
   font-weight: 500;
   cursor: pointer;
 }

@@ -516,7 +516,7 @@ const fetchRunStatus = async () => {
       const isFailed = data.runner_status === 'failed'
       
       // runner_status is authoritative because the backend only publishes a
-      // terminal state after the Zep ingestion barrier has completed.
+      // terminal state after the graph ingestion barrier has completed.
       if (isFailed) {
         addLog(t('log.simFailed') + (data.error ? `: ${data.error}` : ''))
         phase.value = 2
@@ -705,19 +705,19 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #FFFFFF;
+  background: var(--white);
   font-family: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
   overflow: hidden;
 }
 
 /* --- Control Bar --- */
 .control-bar {
-  background: #FFF;
+  background: var(--white);
   padding: 12px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #EAEAEA;
+  border-bottom: 1px solid var(--border);
   z-index: 10;
   height: 64px;
 }
@@ -734,8 +734,8 @@ onUnmounted(() => {
   gap: 4px;
   padding: 6px 12px;
   border-radius: 4px;
-  background: #FAFAFA;
-  border: 1px solid #EAEAEA;
+  background: var(--gray-light);
+  border: 1px solid var(--border);
   opacity: 0.7;
   transition: all 0.3s;
   min-width: 140px;
@@ -745,8 +745,8 @@ onUnmounted(() => {
 
 .platform-status.active {
   opacity: 1;
-  border-color: #333;
-  background: #FFF;
+  border-color: var(--ink-muted);
+  background: var(--white);
 }
 
 .platform-status.completed {
@@ -763,8 +763,8 @@ onUnmounted(() => {
   transform: translateX(-50%);
   margin-top: 8px;
   padding: 10px 14px;
-  background: #000;
-  color: #FFF;
+  background: var(--black);
+  color: var(--white);
   border-radius: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   opacity: 0;
@@ -783,7 +783,7 @@ onUnmounted(() => {
   transform: translateX(-50%);
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
-  border-bottom: 6px solid #000;
+  border-bottom: 6px solid var(--black);
 }
 
 .platform-status:hover .actions-tooltip {
@@ -794,7 +794,7 @@ onUnmounted(() => {
 .tooltip-title {
   font-size: 10px;
   font-weight: 600;
-  color: #999;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 8px;
@@ -810,9 +810,9 @@ onUnmounted(() => {
   font-size: 10px;
   font-weight: 600;
   padding: 3px 8px;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--chip-veil-15);
   border-radius: 2px;
-  color: #FFF;
+  color: var(--white);
   letter-spacing: 0.03em;
 }
 
@@ -826,13 +826,13 @@ onUnmounted(() => {
 .platform-name {
   font-size: 11px;
   font-weight: 700;
-  color: #000;
+  color: var(--black);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-.platform-status.twitter .platform-icon { color: #000; }
-.platform-status.reddit .platform-icon { color: #000; }
+.platform-status.twitter .platform-icon { color: var(--black); }
+.platform-status.reddit .platform-icon { color: var(--black); }
 
 .platform-stats {
   display: flex;
@@ -847,7 +847,7 @@ onUnmounted(() => {
 
 .stat-label {
   font-size: 8px;
-  color: #999;
+  color: var(--gray-text);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -856,12 +856,12 @@ onUnmounted(() => {
 .stat-value {
   font-size: 11px;
   font-weight: 600;
-  color: #333;
+  color: var(--ink-muted);
 }
 
 .stat-total, .stat-unit {
   font-size: 9px;
-  color: #999;
+  color: var(--gray-text);
   font-weight: 400;
 }
 
@@ -889,12 +889,12 @@ onUnmounted(() => {
 }
 
 .action-btn.primary {
-  background: #000;
-  color: #FFF;
+  background: var(--black);
+  color: var(--white);
 }
 
 .action-btn.primary:hover:not(:disabled) {
-  background: #333;
+  background: var(--ink-muted);
 }
 
 .action-btn:disabled {
@@ -907,17 +907,17 @@ onUnmounted(() => {
   flex: 1;
   overflow-y: auto;
   position: relative;
-  background: #FFF;
+  background: var(--white);
 }
 
 /* Timeline Header */
 .timeline-header {
   position: sticky;
   top: 0;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface-veil);
   backdrop-filter: blur(8px);
   padding: 12px 24px;
-  border-bottom: 1px solid #EAEAEA;
+  border-bottom: 1px solid var(--border);
   z-index: 5;
   display: flex;
   justify-content: center;
@@ -928,15 +928,15 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
   font-size: 11px;
-  color: #666;
-  background: #F5F5F5;
+  color: var(--gray-text);
+  background: var(--gray-light);
   padding: 4px 12px;
   border-radius: 20px;
 }
 
 .total-count {
   font-weight: 600;
-  color: #333;
+  color: var(--ink-muted);
 }
 
 .platform-breakdown {
@@ -951,9 +951,9 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-.breakdown-divider { color: #DDD; }
-.breakdown-item.twitter { color: #000; }
-.breakdown-item.reddit { color: #000; }
+.breakdown-divider { color: var(--border); }
+.breakdown-item.twitter { color: var(--black); }
+.breakdown-item.reddit { color: var(--black); }
 
 /* --- Timeline Feed --- */
 .timeline-feed {
@@ -970,7 +970,7 @@ onUnmounted(() => {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #EAEAEA; /* Cleaner line */
+  background: var(--border); /* Cleaner line */
   transform: translateX(-50%);
 }
 
@@ -988,8 +988,8 @@ onUnmounted(() => {
   top: 24px;
   width: 10px;
   height: 10px;
-  background: #FFF;
-  border: 1px solid #CCC;
+  background: var(--white);
+  border: 1px solid var(--border);
   border-radius: 50%;
   transform: translateX(-50%);
   z-index: 2;
@@ -1001,22 +1001,22 @@ onUnmounted(() => {
 .marker-dot {
   width: 4px;
   height: 4px;
-  background: #CCC;
+  background: var(--border);
   border-radius: 50%;
 }
 
-.timeline-item.twitter .marker-dot { background: #000; }
-.timeline-item.reddit .marker-dot { background: #000; }
-.timeline-item.twitter .timeline-marker { border-color: #000; }
-.timeline-item.reddit .timeline-marker { border-color: #000; }
+.timeline-item.twitter .marker-dot { background: var(--black); }
+.timeline-item.reddit .marker-dot { background: var(--black); }
+.timeline-item.twitter .timeline-marker { border-color: var(--black); }
+.timeline-item.reddit .timeline-marker { border-color: var(--black); }
 
 /* Card Layout */
 .timeline-card {
   width: calc(100% - 48px);
-  background: #FFF;
+  background: var(--white);
   border-radius: 2px;
   padding: 16px 20px;
-  border: 1px solid #EAEAEA;
+  border: 1px solid var(--border);
   box-shadow: 0 2px 10px rgba(0,0,0,0.02);
   position: relative;
   transition: all 0.2s;
@@ -1024,7 +1024,7 @@ onUnmounted(() => {
 
 .timeline-card:hover {
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  border-color: #DDD;
+  border-color: var(--border);
 }
 
 /* Left side (Twitter) */
@@ -1054,7 +1054,7 @@ onUnmounted(() => {
   align-items: flex-start;
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #F5F5F5;
+  border-bottom: 1px solid var(--gray-light);
 }
 
 .agent-info {
@@ -1066,8 +1066,8 @@ onUnmounted(() => {
 .avatar-placeholder {
   width: 24px;
   height: 24px;
-  background: #000;
-  color: #FFF;
+  background: var(--black);
+  color: var(--white);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1080,7 +1080,7 @@ onUnmounted(() => {
 .agent-name {
   font-size: 13px;
   font-weight: 600;
-  color: #000;
+  color: var(--black);
 }
 
 .header-meta {
@@ -1090,7 +1090,7 @@ onUnmounted(() => {
 }
 
 .platform-indicator {
-  color: #999;
+  color: var(--gray-text);
   display: flex;
   align-items: center;
 }
@@ -1106,27 +1106,27 @@ onUnmounted(() => {
 }
 
 /* Monochromatic Badges */
-.badge-post { background: #F0F0F0; color: #333; border-color: #E0E0E0; }
-.badge-comment { background: #F0F0F0; color: #666; border-color: #E0E0E0; }
-.badge-action { background: #FFF; color: #666; border: 1px solid #E0E0E0; }
-.badge-meta { background: #FAFAFA; color: #999; border: 1px dashed #DDD; }
+.badge-post { background: var(--gray-light); color: var(--ink-muted); border-color: var(--border); }
+.badge-comment { background: var(--gray-light); color: var(--gray-text); border-color: var(--border); }
+.badge-action { background: var(--white); color: var(--gray-text); border: 1px solid var(--border); }
+.badge-meta { background: var(--gray-light); color: var(--gray-text); border: 1px dashed var(--border); }
 .badge-idle { opacity: 0.5; }
 
 .content-text {
   font-size: 13px;
   line-height: 1.6;
-  color: #333;
+  color: var(--ink-muted);
   margin-bottom: 10px;
 }
 
 .content-text.main-text {
   font-size: 14px;
-  color: #000;
+  color: var(--black);
 }
 
 /* Info Blocks (Quote, Repost, etc) */
 .quoted-block, .repost-content {
-  background: #F9F9F9;
+  background: var(--gray-light);
   border: 1px solid #EEE;
   padding: 10px 12px;
   border-radius: 2px;
@@ -1141,19 +1141,19 @@ onUnmounted(() => {
   gap: 6px;
   margin-bottom: 6px;
   font-size: 11px;
-  color: #666;
+  color: var(--gray-text);
 }
 
 .icon-small {
-  color: #999;
+  color: var(--gray-text);
 }
 .icon-small.filled {
-  color: #999; /* Keep icons neutral unless highlighted */
+  color: var(--gray-text); /* Keep icons neutral unless highlighted */
 }
 
 .search-query {
   font-family: 'JetBrains Mono', monospace;
-  background: #F0F0F0;
+  background: var(--gray-light);
   padding: 0 4px;
   border-radius: 2px;
 }
@@ -1177,7 +1177,7 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  color: #CCC;
+  color: var(--border);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -1187,13 +1187,13 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid #EAEAEA;
+  border: 1px solid var(--border);
   animation: ripple 2s infinite;
 }
 
 @keyframes ripple {
-  0% { transform: scale(0.8); opacity: 1; border-color: #CCC; }
-  100% { transform: scale(2.5); opacity: 0; border-color: #EAEAEA; }
+  0% { transform: scale(0.8); opacity: 1; border-color: var(--border); }
+  100% { transform: scale(2.5); opacity: 0; border-color: var(--border); }
 }
 
 /* Animation */
@@ -1213,8 +1213,8 @@ onUnmounted(() => {
 
 /* Logs */
 .system-logs {
-  background: #000;
-  color: #DDD;
+  background: var(--black);
+  color: var(--border);
   padding: 16px;
   font-family: 'JetBrains Mono', monospace;
   border-top: 1px solid #222;
@@ -1224,11 +1224,11 @@ onUnmounted(() => {
 .log-header {
   display: flex;
   justify-content: space-between;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--ink-muted);
   padding-bottom: 8px;
   margin-bottom: 8px;
   font-size: 10px;
-  color: #666;
+  color: var(--gray-text);
 }
 
 .log-content {
@@ -1241,7 +1241,7 @@ onUnmounted(() => {
 }
 
 .log-content::-webkit-scrollbar { width: 4px; }
-.log-content::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+.log-content::-webkit-scrollbar-thumb { background: var(--ink-muted); border-radius: 2px; }
 
 .log-line {
   font-size: 11px;
@@ -1259,8 +1259,8 @@ onUnmounted(() => {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #FFF;
+  border: 2px solid var(--on-accent-veil-strong);
+  border-top-color: var(--white);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin-right: 6px;

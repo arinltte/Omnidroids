@@ -6,6 +6,7 @@
       <div class="nav-links">
         <router-link to="/" class="nav-link">{{ $t('nav.home') }}</router-link>
         <router-link to="/models" class="nav-link active">MODELS</router-link>
+        <AppearanceSwitcher />
         <LanguageSwitcher />
       </div>
     </nav>
@@ -191,6 +192,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import AppearanceSwitcher from '../components/AppearanceSwitcher.vue'
 import {
   listModels, startDownload, listDownloads, cancelDownload, setRole,
   unloadModel, deleteModel, getSettings, updateSettings
@@ -336,16 +338,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-:root {
-  --black: #000000;
-  --white: #FFFFFF;
-  --orange: #FF4500;
-  --gray-light: #F5F5F5;
-  --gray-text: #666666;
-  --border: #E5E5E5;
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-sans: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
-}
+/* appearance tokens come from assets/theme.css (§9.2) */
 
 .models-page {
   min-height: 100vh;
@@ -379,7 +372,7 @@ onUnmounted(() => {
 }
 
 .nav-link {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--on-ink);
   text-decoration: none;
   font-family: var(--font-mono);
   font-size: 0.8rem;
@@ -428,7 +421,7 @@ onUnmounted(() => {
 }
 
 .runtime-label {
-  color: #999;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -452,7 +445,7 @@ onUnmounted(() => {
 
 /* 控制台盒子（沿用首页双重边框语言） */
 .console-box {
-  border: 1px solid #CCC;
+  border: 1px solid var(--border);
   padding: 8px;
   margin-bottom: 40px;
 }
@@ -467,7 +460,7 @@ onUnmounted(() => {
   margin-bottom: 15px;
   font-family: var(--font-mono);
   font-size: 0.75rem;
-  color: #666;
+  color: var(--gray-text);
 }
 
 .console-label {
@@ -486,8 +479,8 @@ onUnmounted(() => {
 }
 
 .code-input {
-  border: 1px solid #DDD;
-  background: #FAFAFA;
+  border: 1px solid var(--border);
+  background: var(--gray-light);
   padding: 14px 16px;
   font-family: var(--font-mono);
   font-size: 0.9rem;
@@ -529,10 +522,10 @@ onUnmounted(() => {
 }
 
 .primary-btn:disabled {
-  background: #E5E5E5;
-  color: #999;
+  background: var(--border);
+  color: var(--gray-text);
   cursor: not-allowed;
-  border-color: #E5E5E5;
+  border-color: var(--border);
 }
 
 .btn-arrow {
@@ -541,7 +534,7 @@ onUnmounted(() => {
 
 .ghost-btn {
   background: transparent;
-  border: 1px solid #DDD;
+  border: 1px solid var(--border);
   padding: 6px 12px;
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -586,7 +579,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 14px;
   padding: 10px 0;
-  border-bottom: 1px solid #F0F0F0;
+  border-bottom: 1px solid var(--gray-light);
   font-family: var(--font-mono);
   font-size: 0.78rem;
 }
@@ -598,7 +591,7 @@ onUnmounted(() => {
 .job-status {
   width: 14px;
   text-align: center;
-  color: #999;
+  color: var(--gray-text);
 }
 
 .job-status.running { color: var(--orange); }
@@ -615,7 +608,7 @@ onUnmounted(() => {
 .job-bar {
   flex: 1;
   height: 6px;
-  background: #F0F0F0;
+  background: var(--gray-light);
   position: relative;
 }
 
@@ -630,7 +623,7 @@ onUnmounted(() => {
 
 .job-meta {
   flex: 0 0 220px;
-  color: #666;
+  color: var(--gray-text);
   text-align: right;
 }
 
@@ -655,18 +648,18 @@ onUnmounted(() => {
 .section-title {
   font-family: var(--font-mono);
   font-size: 0.8rem;
-  color: #999;
+  color: var(--gray-text);
   letter-spacing: 2px;
   text-transform: uppercase;
 }
 
 .empty-hint {
-  border: 1px dashed #DDD;
+  border: 1px dashed var(--border);
   padding: 40px;
   text-align: center;
   font-family: var(--font-mono);
   font-size: 0.8rem;
-  color: #999;
+  color: var(--gray-text);
   margin-bottom: 40px;
 }
 
@@ -681,7 +674,7 @@ onUnmounted(() => {
 .models-table th {
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: #999;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 1px;
   text-align: left;
@@ -692,12 +685,12 @@ onUnmounted(() => {
 
 .models-table td {
   padding: 14px 12px;
-  border-bottom: 1px solid #F0F0F0;
+  border-bottom: 1px solid var(--gray-light);
   vertical-align: middle;
 }
 
 .models-table tr:hover td {
-  background: #FAFAFA;
+  background: var(--gray-light);
 }
 
 .cell-name {
@@ -727,7 +720,7 @@ onUnmounted(() => {
   text-transform: uppercase;
   border: 1px solid var(--border);
   padding: 2px 8px;
-  color: #666;
+  color: var(--gray-text);
 }
 
 .backend-badge.mlx {
@@ -742,11 +735,11 @@ onUnmounted(() => {
 }
 
 .state-text {
-  color: #666;
+  color: var(--gray-text);
 }
 
 .fp-text {
-  color: #999;
+  color: var(--gray-text);
 }
 
 .cell-actions {
@@ -758,7 +751,7 @@ onUnmounted(() => {
 }
 
 .role-select-sm {
-  border: 1px solid #DDD;
+  border: 1px solid var(--border);
   background: var(--white);
   font-family: var(--font-mono);
   font-size: 0.75rem;
@@ -780,7 +773,7 @@ onUnmounted(() => {
   gap: 8px;
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: #999;
+  color: var(--gray-text);
   text-transform: uppercase;
   letter-spacing: 1px;
 }

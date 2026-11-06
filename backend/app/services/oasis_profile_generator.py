@@ -377,7 +377,7 @@ class OasisProfileGenerator:
             return results
         
         comprehensive_query = normalize_zep_search_query(
-            t('progress.zepSearchQuery', name=entity_name)
+            t('progress.graphSearchQuery', name=entity_name)
         )
         
         def search_edges():

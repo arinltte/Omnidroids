@@ -90,7 +90,7 @@ def get_graph_entities(graph_id: str):
         if Config.zep_api_key_required() and not Config.ZEP_API_KEY:
             return jsonify({
                 "success": False,
-                "error": t('api.zepApiKeyMissing')
+                "error": t('api.localGraphUnavailable')
             }), 500
         
         entity_types_str = request.args.get('entity_types', '')
@@ -127,7 +127,7 @@ def get_entity_detail(graph_id: str, entity_uuid: str):
         if Config.zep_api_key_required() and not Config.ZEP_API_KEY:
             return jsonify({
                 "success": False,
-                "error": t('api.zepApiKeyMissing')
+                "error": t('api.localGraphUnavailable')
             }), 500
         
         reader = ZepEntityReader()
@@ -160,7 +160,7 @@ def get_entities_by_type(graph_id: str, entity_type: str):
         if Config.zep_api_key_required() and not Config.ZEP_API_KEY:
             return jsonify({
                 "success": False,
-                "error": t('api.zepApiKeyMissing')
+                "error": t('api.localGraphUnavailable')
             }), 500
         
         enrich = request.args.get('enrich', 'true').lower() == 'true'

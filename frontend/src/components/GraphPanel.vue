@@ -52,7 +52,7 @@
         <div v-if="selectedItem" class="detail-panel">
           <div class="detail-panel-header">
             <span class="detail-title">{{ selectedItem.type === 'node' ? $t('graph.nodeDetails') : $t('graph.relationship') }}</span>
-            <span v-if="selectedItem.type === 'node'" class="detail-type-badge" :style="{ background: selectedItem.color, color: '#fff' }">
+            <span v-if="selectedItem.type === 'node'" class="detail-type-badge" :style="{ background: selectedItem.color, color: T.white }">
               {{ selectedItem.entityType }}
             </span>
             <button class="detail-close" @click="closeDetailPanel">×</button>
@@ -238,6 +238,13 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import * as d3 from 'd3'
+import { themeTokens } from '../utils/themeTokens'
+import { themeVersion } from '../composables/useTheme'
+
+// §9.2: d3 sets SVG presentation attributes, where CSS var() does not resolve —
+// read the live computed tokens instead. themeVersion flips on every mode change.
+const T = computed(() => themeTokens())
+watch(themeVersion, () => nextTick(renderGraph))
 
 const props = defineProps({
   graphData: Object,
@@ -466,7 +473,7 @@ const renderGraph = () => {
   // Color scale
   const colorMap = {}
   entityTypes.value.forEach(t => colorMap[t.name] = t.color)
-  const getColor = (type) => colorMap[type] || '#999'
+  const getColor = (type) => colorMap[type] || T.grayText
 
   // Simulation - 根据边数量动态调整节点间距
   const simulation = d3.forceSimulation(nodes)
@@ -579,8 +586,8 @@ const renderGraph = () => {
       event.stopPropagation()
       // 重置之前选中边的样式
       linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
-      linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
-      linkLabels.attr('fill', '#666')
+      linkLabelBg.attr('fill', T.surfaceVeil)
+      linkLabels.attr('fill', T.grayText)
       // 高亮当前选中的边
       d3.select(event.target).attr('stroke', '#3498db').attr('stroke-width', 3)
       
@@ -594,7 +601,7 @@ const renderGraph = () => {
   const linkLabelBg = linkGroup.selectAll('rect')
     .data(edges)
     .enter().append('rect')
-    .attr('fill', 'rgba(255,255,255,0.95)')
+    .attr('fill', T.surfaceVeil)
     .attr('rx', 3)
     .attr('ry', 3)
     .style('cursor', 'pointer')
@@ -603,8 +610,8 @@ const renderGraph = () => {
     .on('click', (event, d) => {
       event.stopPropagation()
       linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
-      linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
-      linkLabels.attr('fill', '#666')
+      linkLabelBg.attr('fill', T.surfaceVeil)
+      linkLabels.attr('fill', T.grayText)
       // 高亮对应的边
       link.filter(l => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
       d3.select(event.target).attr('fill', 'rgba(52, 152, 219, 0.1)')
@@ -621,7 +628,7 @@ const renderGraph = () => {
     .enter().append('text')
     .text(d => d.name)
     .attr('font-size', '9px')
-    .attr('fill', '#666')
+    .attr('fill', T.grayText)
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'middle')
     .style('cursor', 'pointer')
@@ -631,8 +638,8 @@ const renderGraph = () => {
     .on('click', (event, d) => {
       event.stopPropagation()
       linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
-      linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
-      linkLabels.attr('fill', '#666')
+      linkLabelBg.attr('fill', T.surfaceVeil)
+      linkLabels.attr('fill', T.grayText)
       // 高亮对应的边
       link.filter(l => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
       d3.select(event.target).attr('fill', '#3498db')
@@ -656,7 +663,7 @@ const renderGraph = () => {
     .enter().append('circle')
     .attr('r', 10)
     .attr('fill', d => getColor(d.type))
-    .attr('stroke', '#fff')
+    .attr('stroke', T.white)
     .attr('stroke-width', 2.5)
     .style('cursor', 'pointer')
     .call(d3.drag()
@@ -698,7 +705,7 @@ const renderGraph = () => {
     .on('click', (event, d) => {
       event.stopPropagation()
       // 重置所有节点样式
-      node.attr('stroke', '#fff').attr('stroke-width', 2.5)
+      node.attr('stroke', T.white).attr('stroke-width', 2.5)
       linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
       // 高亮选中节点
       d3.select(event.target).attr('stroke', '#E91E63').attr('stroke-width', 4)
@@ -716,12 +723,12 @@ const renderGraph = () => {
     })
     .on('mouseenter', (event, d) => {
       if (!selectedItem.value || selectedItem.value.data?.uuid !== d.rawData.uuid) {
-        d3.select(event.target).attr('stroke', '#333').attr('stroke-width', 3)
+        d3.select(event.target).attr('stroke', T.inkMuted).attr('stroke-width', 3)
       }
     })
     .on('mouseleave', (event, d) => {
       if (!selectedItem.value || selectedItem.value.data?.uuid !== d.rawData.uuid) {
-        d3.select(event.target).attr('stroke', '#fff').attr('stroke-width', 2.5)
+        d3.select(event.target).attr('stroke', T.white).attr('stroke-width', 2.5)
       }
     })
 
@@ -731,7 +738,7 @@ const renderGraph = () => {
     .enter().append('text')
     .text(d => d.name.length > 8 ? d.name.substring(0, 8) + '…' : d.name)
     .attr('font-size', '11px')
-    .attr('fill', '#333')
+    .attr('fill', T.inkMuted)
     .attr('font-weight', '500')
     .attr('dx', 14)
     .attr('dy', 4)
@@ -776,10 +783,10 @@ const renderGraph = () => {
   // 点击空白处关闭详情面板
   svg.on('click', () => {
     selectedItem.value = null
-    node.attr('stroke', '#fff').attr('stroke-width', 2.5)
+    node.attr('stroke', T.white).attr('stroke-width', 2.5)
     linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
-    linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
-    linkLabels.attr('fill', '#666')
+    linkLabelBg.attr('fill', T.surfaceVeil)
+    linkLabels.attr('fill', T.grayText)
   })
 }
 
@@ -818,7 +825,7 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   height: 100%;
-  background-color: #FAFAFA;
+  background-color: var(--gray-light);
   background-image: radial-gradient(#D0D0D0 1.5px, transparent 1.5px);
   background-size: 24px 24px;
   overflow: hidden;
@@ -834,14 +841,14 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(to bottom, rgba(255,255,255,0.95), rgba(255,255,255,0));
+  background: linear-gradient(to bottom, var(--surface-veil), var(--surface-veil-transparent));
   pointer-events: none;
 }
 
 .panel-title {
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: var(--ink-muted);
   pointer-events: auto;
 }
 
@@ -855,24 +862,24 @@ onUnmounted(() => {
 .tool-btn {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid #E0E0E0;
-  background: #FFF;
+  border: 1px solid var(--border);
+  background: var(--white);
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   cursor: pointer;
-  color: #666;
+  color: var(--gray-text);
   transition: all 0.2s;
   box-shadow: 0 2px 4px rgba(0,0,0,0.02);
   font-size: 13px;
 }
 
 .tool-btn:hover {
-  background: #F5F5F5;
-  color: #000;
-  border-color: #CCC;
+  background: var(--gray-light);
+  color: var(--black);
+  border-color: var(--border);
 }
 
 .tool-btn .btn-text {
@@ -902,7 +909,7 @@ onUnmounted(() => {
   left: 50%;
   transform: translate(-50%, -50%);
   text-align: center;
-  color: #999;
+  color: var(--gray-text);
 }
 
 .empty-icon {
@@ -916,10 +923,10 @@ onUnmounted(() => {
   position: absolute;
   bottom: 24px;
   left: 24px;
-  background: rgba(255,255,255,0.95);
+  background: var(--surface-veil);
   padding: 12px 16px;
   border-radius: 8px;
-  border: 1px solid #EAEAEA;
+  border: 1px solid var(--border);
   box-shadow: 0 4px 16px rgba(0,0,0,0.06);
   z-index: 10;
 }
@@ -968,10 +975,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #FFF;
+  background: var(--white);
   padding: 8px 14px;
   border-radius: 20px;
-  border: 1px solid #E0E0E0;
+  border: 1px solid var(--border);
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   z-index: 10;
 }
@@ -996,7 +1003,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #E0E0E0;
+  background-color: var(--border);
   border-radius: 22px;
   transition: 0.3s;
 }
@@ -1008,7 +1015,7 @@ onUnmounted(() => {
   width: 16px;
   left: 3px;
   bottom: 3px;
-  background-color: white;
+  background-color: var(--white);
   border-radius: 50%;
   transition: 0.3s;
 }
@@ -1023,7 +1030,7 @@ input:checked + .slider:before {
 
 .toggle-label {
   font-size: 12px;
-  color: #666;
+  color: var(--gray-text);
 }
 
 /* Detail Panel - Right Side */
@@ -1033,8 +1040,8 @@ input:checked + .slider:before {
   right: 20px;
   width: 320px;
   max-height: calc(100% - 100px);
-  background: #FFF;
-  border: 1px solid #EAEAEA;
+  background: var(--white);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.1);
   overflow: hidden;
@@ -1050,14 +1057,14 @@ input:checked + .slider:before {
   justify-content: space-between;
   align-items: center;
   padding: 14px 16px;
-  background: #FAFAFA;
+  background: var(--gray-light);
   border-bottom: 1px solid #EEE;
   flex-shrink: 0;
 }
 
 .detail-title {
   font-weight: 600;
-  color: #333;
+  color: var(--ink-muted);
   font-size: 14px;
 }
 
@@ -1075,14 +1082,14 @@ input:checked + .slider:before {
   border: none;
   font-size: 20px;
   cursor: pointer;
-  color: #999;
+  color: var(--gray-text);
   line-height: 1;
   padding: 0;
   transition: color 0.2s;
 }
 
 .detail-close:hover {
-  color: #333;
+  color: var(--ink-muted);
 }
 
 .detail-content {
@@ -1106,7 +1113,7 @@ input:checked + .slider:before {
 }
 
 .detail-value {
-  color: #333;
+  color: var(--ink-muted);
   flex: 1;
   word-break: break-word;
 }
@@ -1114,7 +1121,7 @@ input:checked + .slider:before {
 .detail-value.uuid-text {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: #666;
+  color: var(--gray-text);
 }
 
 .detail-value.fact-text {
@@ -1125,13 +1132,13 @@ input:checked + .slider:before {
 .detail-section {
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid #F0F0F0;
+  border-top: 1px solid var(--gray-light);
 }
 
 .section-title {
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--gray-text);
   margin-bottom: 10px;
 }
 
@@ -1153,7 +1160,7 @@ input:checked + .slider:before {
 }
 
 .property-value {
-  color: #333;
+  color: var(--ink-muted);
   flex: 1;
 }
 
@@ -1172,8 +1179,8 @@ input:checked + .slider:before {
 .label-tag {
   display: inline-block;
   padding: 4px 12px;
-  background: #F5F5F5;
-  border: 1px solid #E0E0E0;
+  background: var(--gray-light);
+  border: 1px solid var(--border);
   border-radius: 16px;
   font-size: 11px;
   color: #555;
@@ -1193,7 +1200,7 @@ input:checked + .slider:before {
   border-radius: 6px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: #666;
+  color: var(--gray-text);
   word-break: break-all;
 }
 
@@ -1205,7 +1212,7 @@ input:checked + .slider:before {
   margin-bottom: 16px;
   font-size: 13px;
   font-weight: 500;
-  color: #333;
+  color: var(--ink-muted);
   line-height: 1.5;
   word-break: break-word;
 }
@@ -1218,7 +1225,7 @@ input:checked + .slider:before {
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
-  color: #fff;
+  color: var(--white);
   padding: 10px 20px;
   border-radius: 30px;
   font-size: 13px;
@@ -1226,7 +1233,7 @@ input:checked + .slider:before {
   align-items: center;
   gap: 10px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--on-accent-veil);
   font-weight: 500;
   letter-spacing: 0.5px;
   z-index: 100;
@@ -1253,7 +1260,7 @@ input:checked + .slider:before {
 /* 模拟结束后的提示样式 */
 .graph-building-hint.finished-hint {
   background: rgba(0, 0, 0, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--on-accent-veil);
 }
 
 .finished-hint .hint-icon-wrapper {
@@ -1265,7 +1272,7 @@ input:checked + .slider:before {
 .finished-hint .hint-icon {
   width: 18px;
   height: 18px;
-  color: #FFF;
+  color: var(--white);
 }
 
 .finished-hint .hint-text {
@@ -1279,18 +1286,18 @@ input:checked + .slider:before {
   justify-content: center;
   width: 22px;
   height: 22px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--on-accent-veil);
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  color: #FFF;
+  color: var(--white);
   transition: all 0.2s;
   margin-left: 8px;
   flex-shrink: 0;
 }
 
 .hint-close-btn:hover {
-  background: rgba(255, 255, 255, 0.35);
+  background: var(--on-accent-veil-strong);
   transform: scale(1.1);
 }
 
@@ -1298,7 +1305,7 @@ input:checked + .slider:before {
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #E0E0E0;
+  border: 3px solid var(--border);
   border-top-color: #7B2D8E;
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -1317,8 +1324,8 @@ input:checked + .slider:before {
 .self-loop-count {
   margin-left: auto;
   font-size: 11px;
-  color: #666;
-  background: rgba(255,255,255,0.8);
+  color: var(--gray-text);
+  background: var(--chip-veil);
   padding: 2px 8px;
   border-radius: 10px;
 }
@@ -1330,8 +1337,8 @@ input:checked + .slider:before {
 }
 
 .self-loop-item {
-  background: #FAFAFA;
-  border: 1px solid #EAEAEA;
+  background: var(--gray-light);
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 
@@ -1340,7 +1347,7 @@ input:checked + .slider:before {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  background: #F5F5F5;
+  background: var(--gray-light);
   cursor: pointer;
   transition: background 0.2s;
 }
@@ -1357,7 +1364,7 @@ input:checked + .slider:before {
   font-size: 10px;
   font-weight: 600;
   color: #888;
-  background: #E0E0E0;
+  background: var(--border);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -1365,7 +1372,7 @@ input:checked + .slider:before {
 .self-loop-name {
   font-size: 12px;
   font-weight: 500;
-  color: #333;
+  color: var(--ink-muted);
   flex: 1;
 }
 
@@ -1378,19 +1385,19 @@ input:checked + .slider:before {
   font-size: 14px;
   font-weight: 600;
   color: #888;
-  background: #E0E0E0;
+  background: var(--border);
   border-radius: 4px;
   transition: all 0.2s;
 }
 
 .self-loop-item.expanded .self-loop-toggle {
   background: #D0D0D0;
-  color: #666;
+  color: var(--gray-text);
 }
 
 .self-loop-item-content {
   padding: 12px;
-  border-top: 1px solid #EAEAEA;
+  border-top: 1px solid var(--border);
 }
 
 .self-loop-item-content .detail-row {

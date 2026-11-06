@@ -7,6 +7,7 @@
         <router-link to="/new" class="nav-link">{{ $t('sessions.newPrediction') }}</router-link>
         <router-link to="/models" class="nav-link">{{ $t('nav.models') }}</router-link>
         <LanguageSwitcher />
+        <AppearanceSwitcher />
       </div>
     </nav>
 
@@ -81,6 +82,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import AppearanceSwitcher from '../components/AppearanceSwitcher.vue'
 import i18n from '../i18n'
 import { listSessions, resumeSession, deleteSession } from '../api/sessions'
 
@@ -195,16 +197,7 @@ onUnmounted(stopPolling)
 </script>
 
 <style scoped>
-:root {
-  --black: #000000;
-  --white: #FFFFFF;
-  --orange: #FF4500;
-  --gray-light: #F5F5F5;
-  --gray-text: #666666;
-  --border: #E5E5E5;
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-sans: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
-}
+/* appearance tokens come from assets/theme.css (§9.2) */
 
 .sessions-page {
   min-height: 100vh;

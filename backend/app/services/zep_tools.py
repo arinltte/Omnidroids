@@ -435,7 +435,7 @@ class ZepToolsService:
         self.client = get_zep_client(self.api_key)
         # LLM客户端用于InsightForge生成子问题
         self._llm_client = llm_client
-        logger.info(t("console.zepToolsInitialized"))
+        logger.info(t("console.graphitiToolsInitialized"))
     
     @property
     def llm(self) -> LLMClient:
@@ -536,7 +536,7 @@ class ZepToolsService:
         except Exception as e:
             # Authentication, invalid input, missing graphs, and exhausted
             # transient failures must remain visible to the report workflow.
-            logger.error(t("console.zepSearchApiFallback", error=str(e)))
+            logger.error(t("console.graphitiSearchApiFallback", error=str(e)))
             raise
     
     def _local_search(

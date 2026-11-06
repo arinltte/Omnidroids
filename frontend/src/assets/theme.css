@@ -1,0 +1,70 @@
+/* §9.2: global appearance tokens.
+ *
+ * The existing design language names colors by ROLE, not by literal value:
+ * `--black` is the ink, `--white` is the surface. Dark mode inverts those two
+ * definitions, so every existing `var(--white)` surface becomes dark and every
+ * `var(--black)` text/rule becomes light without touching a single component.
+ *
+ * Token contract (both modes):
+ *   --black   ink: primary text, brand bars, primary-button fill
+ *   --white   surface: page background, raised panels
+ *   --orange  accent (selection, progress, active states)
+ *   --gray-light  subtle panel fill (inputs, zebra rows, hover wash)
+ *   --gray-text   secondary text
+ *   --border  hairlines and control borders
+ *   --ink-muted   tertiary strokes/labels (SVG link strokes, hover rings)
+ *   --surface-veil  the near-opaque plate behind graph labels
+ *   --scrollbar-track / --scrollbar-thumb-hover  chrome details
+ */
+:root {
+
+  --black: #000000;
+  --white: #FFFFFF;
+  --orange: #FF4500;
+  --gray-light: #F5F5F5;
+  --gray-text: #666666;
+  --border: #E5E5E5;
+  --ink-muted: #333333;
+  --surface-veil: rgba(255, 255, 255, 0.95);
+  --surface-veil-transparent: rgba(255, 255, 255, 0);
+  --on-accent-veil: rgba(255, 255, 255, 0.2);
+  --on-accent-veil-strong: rgba(255, 255, 255, 0.35);
+  --chip-veil: rgba(255, 255, 255, 0.8);
+  --hover-wash: rgba(255, 255, 255, 0.8);
+  --row-veil: rgba(255, 255, 255, 0.7);
+  --row-veil-soft: rgba(255, 255, 255, 0.5);
+  --chip-veil-15: rgba(255, 255, 255, 0.15);
+  --scrollbar-track: #f1f1f1;
+  --scrollbar-thumb-hover: #555555;
+  --on-ink: rgba(255, 255, 255, 0.7);   /* text on the brand bar */
+  --on-ink-strong: #FFFFFF;
+  --error-bg: #fff5f5;         /* error row wash */
+  --danger: #D93025;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
+}
+
+:root.dark {
+  --black: #F2F2F2;          /* ink inverts to a light gray */
+  --white: #101010;          /* surface inverts to near-black */
+  --orange: #FF5A1F;         /* slightly lifted for contrast on dark */
+  --gray-light: #1B1B1B;
+  --gray-text: #9A9A9A;
+  --border: #2E2E2E;
+  --ink-muted: #8A8A8A;
+  --surface-veil: rgba(16, 16, 16, 0.95);
+  --surface-veil-transparent: rgba(16, 16, 16, 0);
+  --on-accent-veil: rgba(255, 255, 255, 0.18);
+  --on-accent-veil-strong: rgba(255, 255, 255, 0.3);
+  --chip-veil: rgba(255, 255, 255, 0.12);
+  --hover-wash: rgba(255, 255, 255, 0.08);
+  --row-veil: rgba(255, 255, 255, 0.1);
+  --row-veil-soft: rgba(255, 255, 255, 0.06);
+  --chip-veil-15: rgba(255, 255, 255, 0.1);
+  --scrollbar-track: #1B1B1B;
+  --scrollbar-thumb-hover: #666666;
+  --error-bg: #3a1512;         /* error row wash (dark) */
+  --danger: #FF6B5E;
+}
+
+/* system preference is applied by the theme composable before paint */

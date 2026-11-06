@@ -289,7 +289,7 @@ class SimulationManager:
             
             # ========== 阶段1: 读取并过滤实体 ==========
             if progress_callback:
-                progress_callback("reading", 0, t('progress.connectingZepGraph'))
+                progress_callback("reading", 0, t('progress.connectingGraphitiGraph'))
             
             reader = ZepEntityReader()
             

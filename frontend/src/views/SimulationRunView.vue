@@ -321,7 +321,7 @@ onUnmounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #FFF;
+  background: var(--white);
   overflow: hidden;
   font-family: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
 }
@@ -329,12 +329,12 @@ onUnmounted(() => {
 /* Header */
 .app-header {
   height: 60px;
-  border-bottom: 1px solid #EAEAEA;
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  background: #FFF;
+  background: var(--white);
   z-index: 100;
   position: relative;
 }
@@ -357,18 +357,18 @@ onUnmounted(() => {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 700;
-  color: #000;
+  color: var(--black);
   text-decoration: none;
   padding: 4px 8px;
-  border: 1px solid #EAEAEA;
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 
-.monitor-link:hover { background: #000; color: #FFF; border-color: #000; }
+.monitor-link:hover { background: var(--black); color: var(--white); border-color: var(--black); }
 
 .view-switcher {
   display: flex;
-  background: #F5F5F5;
+  background: var(--gray-light);
   padding: 4px;
   border-radius: 6px;
   gap: 4px;
@@ -380,15 +380,15 @@ onUnmounted(() => {
   padding: 6px 16px;
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--gray-text);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .switch-btn.active {
-  background: #FFF;
-  color: #000;
+  background: var(--white);
+  color: var(--black);
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
@@ -408,18 +408,18 @@ onUnmounted(() => {
 .step-num {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
-  color: #999;
+  color: var(--gray-text);
 }
 
 .step-name {
   font-weight: 700;
-  color: #000;
+  color: var(--black);
 }
 
 .step-divider {
   width: 1px;
   height: 14px;
-  background-color: #E0E0E0;
+  background-color: var(--border);
 }
 
 .status-indicator {
@@ -427,7 +427,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #666;
+  color: var(--gray-text);
   font-weight: 500;
 }
 
@@ -435,7 +435,7 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #CCC;
+  background: var(--border);
 }
 
 .status-indicator.processing .dot { background: #FF5722; animation: pulse 1s infinite; }
@@ -460,7 +460,7 @@ onUnmounted(() => {
 }
 
 .panel-wrapper.left {
-  border-right: 1px solid #EAEAEA;
+  border-right: 1px solid var(--border);
 }
 </style>
 

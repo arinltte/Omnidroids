@@ -488,7 +488,7 @@ def _build_graph_impl(project_id_override: str = None, force_override: bool = No
         # 检查配置
         errors = []
         if Config.zep_api_key_required() and not Config.ZEP_API_KEY:
-            errors.append(t('api.zepApiKeyMissing'))
+            errors.append(t('api.localGraphUnavailable'))
         if errors:
             logger.error(f"配置错误: {errors}")
             return jsonify({
@@ -694,14 +694,14 @@ def _build_graph_impl(project_id_override: str = None, force_override: bool = No
                     )
                     task_manager.update_task(
                         task_id,
-                        message=t('progress.waitingZepProcess'),
+                        message=t('progress.waitingGraphitiProcess'),
                         progress=55,
                     )
                 else:
                     # 创建图谱
                     task_manager.update_task(
                         task_id,
-                        message=t('progress.creatingZepGraph'),
+                        message=t('progress.creatingGraphitiGraph'),
                         progress=10
                     )
 
@@ -753,7 +753,7 @@ def _build_graph_impl(project_id_override: str = None, force_override: bool = No
                 # 等待Zep处理完成（查询每个episode的processed状态）
                 task_manager.update_task(
                     task_id,
-                    message=t('progress.waitingZepProcess'),
+                    message=t('progress.waitingGraphitiProcess'),
                     progress=55
                 )
                 
@@ -893,7 +893,7 @@ def get_graph_data(graph_id: str):
         if Config.zep_api_key_required() and not Config.ZEP_API_KEY:
             return jsonify({
                 "success": False,
-                "error": t('api.zepApiKeyMissing')
+                "error": t('api.localGraphUnavailable')
             }), 500
         
         builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
@@ -921,7 +921,7 @@ def delete_graph(graph_id: str):
         if Config.zep_api_key_required() and not Config.ZEP_API_KEY:
             return jsonify({
                 "success": False,
-                "error": t('api.zepApiKeyMissing')
+                "error": t('api.localGraphUnavailable')
             }), 500
         
         projects = ProjectManager.find_projects_by_graph_id(graph_id)

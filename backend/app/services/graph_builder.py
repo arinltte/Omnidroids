@@ -199,7 +199,7 @@ class GraphBuilderService:
             self.task_manager.update_task(
                 task_id,
                 progress=60,
-                message=t('progress.waitingZepProcess')
+                message=t('progress.waitingGraphitiProcess')
             )
             
             self._wait_for_batch(
@@ -676,7 +676,7 @@ class GraphBuilderService:
                 completed = int(getattr(progress, "succeeded_items", 0) or 0)
                 progress_callback(
                     t(
-                        'progress.zepProcessing',
+                        'progress.graphitiProcessing',
                         completed=completed,
                         total=submission.item_count,
                         pending=max(submission.item_count - completed, 0),
@@ -801,7 +801,7 @@ class GraphBuilderService:
             elapsed = int(time.time() - start_time)
             if progress_callback:
                 progress_callback(
-                    t('progress.zepProcessing', completed=completed_count, total=total_episodes, pending=len(pending_episodes), elapsed=elapsed),
+                    t('progress.graphitiProcessing', completed=completed_count, total=total_episodes, pending=len(pending_episodes), elapsed=elapsed),
                     completed_count / total_episodes if total_episodes > 0 else 0
                 )
             

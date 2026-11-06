@@ -157,40 +157,40 @@ const twoFix = (v) => (typeof v === 'number' ? v.toFixed(2) : (v ?? 0))
 </script>
 
 <style scoped>
-.monitor { height: 100vh; display: flex; flex-direction: column; background: #FFF; color: #000;
+.monitor { height: 100vh; display: flex; flex-direction: column; background: var(--white); color: var(--black);
   font-family: 'JetBrains Mono', 'Noto Sans SC', monospace; }
-.m-header { height: 56px; border-bottom: 1px solid #EAEAEA; display: flex; align-items: center; gap: 16px; padding: 0 20px; }
+.m-header { height: 56px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; padding: 0 20px; }
 .brand { font-weight: 800; letter-spacing: 1px; font-size: 16px; }
-.title { font-size: 13px; color: #666; }
+.title { font-size: 13px; color: var(--gray-text); }
 .spacer { flex: 1; }
 .conn { font-size: 12px; display: inline-flex; align-items: center; gap: 6px; color: #444; }
-.conn .dot { width: 8px; height: 8px; border-radius: 50%; background: #999; display: inline-block; }
+.conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray-text); display: inline-block; }
 .conn.ok .dot { background: #16a34a; } .conn.bad .dot { background: #dc2626; }
-.link-btn, .mini, .toggle { border: 1px solid #000; background: #FFF; padding: 6px 12px; font-size: 12px; cursor: pointer; font-family: inherit; }
-.link-btn:hover, .mini:hover { background: #000; color: #FFF; }
+.link-btn, .mini, .toggle { border: 1px solid var(--black); background: var(--white); padding: 6px 12px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.link-btn:hover, .mini:hover { background: var(--black); color: var(--white); }
 .m-body { flex: 1; overflow: auto; padding: 16px; display: grid; gap: 14px; grid-template-columns: 1fr 1fr; align-content: start; }
-.card { border: 1px solid #EAEAEA; border-radius: 8px; padding: 14px; background: #FFF; }
+.card { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--white); }
 .card.wide { grid-column: 1 / span 2; }
 .card-h { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
-.card-h .hint { font-weight: 400; color: #999; font-size: 11px; }
+.card-h .hint { font-weight: 400; color: var(--gray-text); font-size: 11px; }
 .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
 .kv { display: flex; justify-content: space-between; font-size: 12px; border-bottom: 1px dashed #EEE; padding: 4px 0; }
-.kv span { color: #888; } .kv b { font-weight: 600; }
+.kv span { color: var(--gray-text); } .kv b { font-weight: 600; }
 .on { color: #d97706; font-weight: 700; } .off { color: #16a34a; font-weight: 700; }
 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.stat { border: 1px solid #EEE; border-radius: 6px; padding: 10px; }
-.stat i { display: block; font-style: normal; font-size: 11px; color: #888; margin-bottom: 4px; }
+.stat { border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
+.stat i { display: block; font-style: normal; font-size: 11px; color: var(--gray-text); margin-bottom: 4px; }
 .stat b { font-size: 16px; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
-.tbl th, .tbl td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #F0F0F0; white-space: nowrap; }
-.tbl th { color: #888; font-weight: 600; }
-.tbl tr.err td { background: #fff5f5; }
+.tbl th, .tbl td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--gray-light); white-space: nowrap; }
+.tbl th { color: var(--gray-text); font-weight: 600; }
+.tbl tr.err td { background: var(--error-bg); }
 .tablewrap { max-height: 300px; overflow: auto; }
 .loaded { margin-top: 10px; }
-.empty, .note { font-size: 12px; color: #888; margin-top: 8px; }
+.empty, .note { font-size: 12px; color: var(--gray-text); margin-top: 8px; }
 .ctrl-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .ctrl-row label { font-size: 12px; color: #444; display: inline-flex; align-items: center; gap: 6px; }
-.ctrl-row input { width: 72px; border: 1px solid #DDD; border-radius: 4px; padding: 4px 6px; font-family: inherit; }
+.ctrl-row input { width: 72px; border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; font-family: inherit; }
 .toggle.t-off { border-color: #16a34a; color: #16a34a; } .toggle.t-on { border-color: #d97706; color: #d97706; }
 @media (max-width: 980px) { .m-body { grid-template-columns: 1fr; } .card.wide { grid-column: auto; } .grid { grid-template-columns: repeat(2,1fr);} }
 </style>
