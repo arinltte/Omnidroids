@@ -142,16 +142,106 @@ above, and the co-residency headroom. A full 53-chunk wall-time re-measurement o
 the Omnidroids pipeline has **not** been run yet — it is the next measurement and
 belongs in this doc (§12 acceptance criterion 3 records it).
 
-## 7b. Open finding — extraction quality on the real pipeline (issue #22)
+## 7b. Extraction quality on the real pipeline — issue #22 (measured)
 
-The §2/§6 fixture results above are **fixture-level only**. The §12.4 acceptance
-run (2026-11-07) ingested a real document and **all 19 chunks were skipped**: the
-4-bit does not reliably produce graphiti's exact extraction schema (malformed
-JSON, and valid JSON with `entities` instead of `extracted_entities`), while the
-hand-written probe prompt passes at every token cap
-(`scratch/extraction_truncation_probe.py`). Do not treat §2's 100% JSON validity
-as pipeline-valid — close #22 and re-measure a 5-chunk ingestion (target: 0
-skips) before quoting a skip rate for the pipeline.
+**Under test:** the `small` role, `LFM3-1.7B-MLX-4bit`, answering graphiti's own
+extraction prompts through the Flask `/v1` proxy (`ModelManager.generate_sync` → MLX)
+behind the seam in `backend/app/utils/graphiti_zep.py` (`_CappedLLMClient`,
+`_append_schema_reminder`). Config in force for every run, printed by the harness:
+`json_schema` structured output, `GRAPHITI_LLM_MAX_TOKENS=4096`,
+`GRAPHITI_MAX_COROUTINES=2`, arctic-embed-s 384-d. `temperature=0.0` is dropped by the
+MLX runner (the checkpoint's sampler — temp 0.1, top_k 50 — applies), so these are
+SAMPLED, not deterministic, measurements; every fix was measured with `--repeat 2`.
+Ollama is stopped before each run and never answers (harness asserts :11434 is closed).
+Commands, run from the worktree's `backend/` (chunks = the six real ones of batch
+`local_a84bf4218fe24790`, sha256-verified by the harness):
+
+```bash
+.venv/bin/python ../scratch/graphiti_extraction_check.py --mode node --repeat 2
+.venv/bin/python ../scratch/graphiti_extraction_check.py --mode full --repeat 1
+```
+
+`--mode node` (H2) drives graphiti's node prompt through the production client alone;
+`--mode full` (H1) runs `graphiti.add_episode` over Kuzu + the local embedder, i.e. every
+call a chunk makes (nodes, node dedupe, edges, edge dedupe, summaries).
+
+### Node extraction — before/after class mix (12 calls each, `--repeat 2`)
+
+| run | log | ok | malformed-json | wrong-keys | LLM s | mean |
+|---|---|---|---|---|---|---|
+| pre-fix baseline (schema never reached the model) | `.agent-notes/graphiti_extraction_baseline.log` | **0/12** | 3 | 9 | 478.5 | 39.9 s |
+| schema reminder + item-field sentence | `scratch/after_fix_node.log` | 11/12 | 0 | 1 | 116.3 | 9.7 s |
+| first shape-clause draft (clauses mid-reminder) | `scratch/interim_node.log` | 10/12 | 2 | 0 | 200.6 | 16.7 s |
+| **final** (shape clauses close the reminder) | `scratch/final_node.log` | **12/12** | 0 | 0 | 95.0 | 7.9 s |
+
+Per chunk in the final run (`scratch/final_node.log`):
+
+| idx | chars | rep 0 s / nodes | rep 1 s / nodes |
+|---|---|---|---|
+| 0 | 376 | 9.0 / 6 | 4.7 / 6 |
+| 1 | 368 | 8.8 / 26 | 5.6 / 12 |
+| 2 | 213 | 15.3 / 5 | 3.6 / 5 |
+| 3 | 390 | 6.1 / 14 | 5.5 / 12 |
+| 4 | 129 | 4.3 / 8 | 4.5 / 8 |
+| 5 | 390 | 21.8 / 13 | 5.8 / 13 |
+
+Backend RSS 180 → 1716 MB over the run (idle unload returns it, §4). The two defects the
+failing runs still showed — a body split over 232 lines, and a `}  // Wait, ...` line
+between two array items — are what the closing clause names; with it the node path is
+12/12 at 7.9 s mean, consistent with §2's 86 tok/s JSON throughput on ~200-token bodies.
+
+### Full ingestion — the edge path is the remaining blocker (#22 stays OPEN)
+
+| run | log | ok | skipped | ExtractedEdges calls | of which `finish_reason=length` | `NodeResolutions` schema echoes |
+|---|---|---|---|---|---|---|
+| pre-fix baseline (6 chunks × 2 reps) | `.agent-notes/graphiti_extraction_baseline.log` | 0/12 | 12 | — | — | — |
+| schema reminder + item-field sentence | `scratch/after_fix_full.log` (interrupted) | 0/3 reached | 3 | 4 | 3 | 0 |
+| **final, run 1** | `scratch/interim_full.log` | 0 | 5 (crash on 6th) | 4 | 4 | 1 |
+| **final, run 2** | `scratch/final_full.log` | 0 | 5 (crash on 6th) | 6 | 3 | 3 |
+
+Per chunk in the final run (`scratch/final_full.log`):
+
+| idx | chars | status | class | wall | the call that skipped it |
+|---|---|---|---|---|---|
+| 0 | 376 | skip | malformed-json | 113.1 s | `ExtractedEdges` `finish_reason=length`, ~14 000 chars over 232 lines |
+| 1 | 368 | skip | malformed-json | 109.4 s | `ExtractedEdges` `finish_reason=length`, ~14 000 chars over 196 lines |
+| 2 | 213 | skip | wrong-keys | 29.5 s | `NodeResolutions` answered the SCHEMA, not the data |
+| 3 | 390 | skip | malformed-json | 94.0 s | `ExtractedEdges` `finish_reason=length` at char 14 020 / line 340 |
+| 4 | 129 | skip | wrong-keys | 15.9 s | `NodeResolutions` answered the SCHEMA again |
+| 5 | 390 | — | — | — | harness died first (Kuzu SIGBUS, below) |
+
+361.9 s for the five completed chunks (72.4 s mean) before the run stopped. Two
+blockers, neither of them the token cap:
+
+1. **`ExtractedEdges` pretty-prints.** 5 of 6 logged edge bodies in the final run start
+   `{  "edges": [\n    {\n      "source_entity_name": ...`; three reach the 4096-token
+   leaf clamp, which is M1's invariant, so M3's `_TruncatedJSONError` fires and the chunk
+   is skipped. The same bodies carry sentence-length `fact` values and invented
+   microsecond `valid_at` values (`2026-11-06T19:24:07.613958Z`) — exactly what the seam's
+   shape clauses ask it not to do. The node prompt obeys those clauses (12/12 above); the
+   edge prompt does not. Raising the cap is not the answer (M1: the pre-clamp 16 k-token
+   call took ~348 s and still failed), and a truncated-body salvage parser is not the
+   answer (M3).
+2. **`NodeResolutions` echoes the schema.** With the schema reminder in the prompt the
+   model sometimes answers the node-dedupe prompt with the schema itself
+   (`{"$defs": {"NodeDuplicate": ...`), 3 of 5 calls in the final run. A cost of the
+   reminder that fixed the wrong-keys class, not of the shape clauses.
+
+**Harness defect (not the seam):** both full-mode runs ended in `Bus error: 10` (SIGBUS)
+in the harness process during chunk 5's node-summary/dedupe phase, right after
+`SummarizedEntities` returned at 04:57:46, so neither run reached a summary line.
+Reproducible (two runs, same phase). The backend child stayed healthy and unloaded the
+model cleanly on SIGTERM (RSS 1721 → 781 MB, interim run's `backend.log`). H1 results
+therefore have to be read from the per-chunk lines, and this SIGBUS has to be fixed
+before §12's SIGTERM-mid-build proof can be re-run.
+
+The §2/§6 fixture results are still **fixture-level only**: #22 is not closed. What is
+measured is a partial fix — the node path that filed the issue (wrong keys, malformed
+JSON) is 12/12 at 7.9 s/call, and the edge path plus the node-dedupe prompt still violate
+the schema often enough that no 0-skip ingestion has been measured. Remaining options,
+all requiring a decision: a shape clause that also names the schema-echo defect, an
+extraction-dedicated bigger model, or grammar-constrained decoding. Do **not** raise
+`GRAPHITI_LLM_MAX_TOKENS`.
 
 ## 8. Reproduce
 
