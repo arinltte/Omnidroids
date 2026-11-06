@@ -61,6 +61,31 @@ _ITEM_REQUIREMENTS_SENTENCE = (
     'fields.'
 )
 
+# The shape clause the seam appends for EVERY response model: ONE compact line
+# of JSON, nothing else, no commentary anywhere inside the object — not merely
+# inside a value, which is where the model put it (a "// Wait, ..." line between
+# two array items, scratch/final_node.log).
+_SHAPE_SENTENCE = (
+    "Return that object as ONE compact line of JSON: no indentation, no line "
+    "breaks, no markdown code fences, no prose before or after it, and no "
+    "comments or reasoning anywhere inside it — not between its items and not "
+    "inside a value."
+)
+
+# Only emitted when the schema actually carries a "fact" field (graphiti's Edge).
+_TERSE_FACT_SENTENCE = (
+    'Write each "fact" as a short phrase naming the relation, not a sentence '
+    "copied from the text, and keep every concrete noun and number from the "
+    "source."
+)
+
+# Only emitted when the schema actually carries valid_at/invalid_at (Edge).
+_TIMESTAMP_SENTENCE = (
+    'Keep "valid_at" and "invalid_at" null unless the text states or resolves '
+    "a date or time; never invent one, and write any timestamp at second "
+    "precision (YYYY-MM-DDTHH:MM:SSZ)."
+)
+
 _TERMINAL_PREFIX = "truncated/unparseable JSON response (not retried): "
 
 # The ontology of the failing acceptance run (Entity 0, then the declared types).
@@ -251,8 +276,9 @@ def test_schema_reminder_appended_for_a_response_model(monkeypatch):
     ]["content"]
     assert "extracted_entities" in sent[-1]["content"]
     assert sent[0]["content"] == "You are an entity extraction specialist."
-    # the required-item sentence follows graphiti's own block (R2 follow-up)
-    assert sent[-1]["content"].endswith(_ITEM_REQUIREMENTS_SENTENCE)
+    # the shape clause is now the closing sentence (R2 follow-up)
+    assert sent[-1]["content"].endswith(_SHAPE_SENTENCE)
+    assert _ITEM_REQUIREMENTS_SENTENCE + "\n\n" + _SHAPE_SENTENCE in sent[-1]["content"]
 
 
 def test_schema_reminder_absent_without_a_response_model(monkeypatch):
@@ -318,42 +344,53 @@ def test_schema_reminder_is_mode_independent(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "response_model, expectation",
+    "response_model, item_sentence, extra_clauses",
     [
         (
             ExtractedEntities,
             'every item of "extracted_entities" must contain name (string), '
             'entity_type_id (integer). Omit any item that lacks one of its '
             'required fields.',
+            "",
         ),
         (
             ExtractedEdges,
             'every item of "edges" must contain source_entity_name (string), '
             'target_entity_name (string), relation_type (string), fact (string). '
             'Omit any item that lacks one of its required fields.',
+            "\n\n" + _TERSE_FACT_SENTENCE + "\n\n" + _TIMESTAMP_SENTENCE,
         ),
         (
             NodeResolutions,
             'every item of "entity_resolutions" must contain id (integer), '
             'name (string), duplicate_candidate_id (integer). Omit any item that '
             'lacks one of its required fields.',
+            "",
         ),
     ],
 )
 def test_schema_reminder_restates_required_item_fields_without_refs(
-    monkeypatch, response_model, expectation
+    monkeypatch, response_model, item_sentence, extra_clauses
 ):
     client, calls = _client('{"x": 1}', monkeypatch=monkeypatch)
 
     _generate(client, [Message(role="user", content="Extract.")], response_model, 2048)
 
     sent = calls[0]["messages"][-1]["content"]
-    # graphiti's own block is still present, verbatim and unaltered
-    assert _SCHEMA_REMINDER + json.dumps(response_model.model_json_schema()) in sent
-    assert sent.endswith(expectation)
+    # the whole appended tail: graphiti's own block, the item fields, the shape
+    assert sent == (
+        "Extract."
+        + _SCHEMA_REMINDER
+        + json.dumps(response_model.model_json_schema())
+        + "\n\n"
+        + item_sentence
+        + "\n\n"
+        + _SHAPE_SENTENCE
+        + extra_clauses
+    )
     # the added sentence is plain language, not a second $ref chain
-    assert "$ref" not in expectation
-    assert "$defs" not in expectation
+    assert "$ref" not in item_sentence
+    assert "$defs" not in item_sentence
 
 
 def test_element_requirements_absent_without_array_items(monkeypatch):
@@ -364,10 +401,144 @@ def test_element_requirements_absent_without_array_items(monkeypatch):
 
     _generate(client, [Message(role="user", content="Answer.")], _FlatResponse, 2048)
 
-    # nothing to restate: graphiti's reminder is the whole tail, unchanged
-    assert calls[0]["messages"][-1]["content"].endswith(
-        _SCHEMA_REMINDER + json.dumps(_FlatResponse.model_json_schema())
+    # nothing to restate: graphiti's reminder plus the shape clause is the whole
+    # tail; no item sentence and no schema-specific clause were added
+    sent = calls[0]["messages"][-1]["content"]
+    assert sent.endswith(
+        _SCHEMA_REMINDER
+        + json.dumps(_FlatResponse.model_json_schema())
+        + "\n\n"
+        + _SHAPE_SENTENCE
     )
+    assert "must contain" not in sent
+    assert _TERSE_FACT_SENTENCE not in sent
+    assert _TIMESTAMP_SENTENCE not in sent
+
+# ---------------------------------------------------------------------------
+# Prompt shape — the response must be compact and commentary-free (final fix)
+# ---------------------------------------------------------------------------
+#
+# Measured with the schema reminder in place (scratch/after_fix_full.log, H1
+# --repeat 1): node extraction was healthy, but ExtractedEdges hit the 4096-token
+# leaf clamp — finish_reason=length on a ~14 000-char PRETTY-PRINTED body whose
+# "fact" values were full sentences and whose valid_at carried an invented
+# microsecond timestamp — so chunks 0/1/2 were skipped by _TruncatedJSONError.
+# M1 forbids raising the cap, so the prompt now states the response SHAPE. Every
+# extra clause is derived from the response model's own schema: a "fact" clause
+# only for a model that has one, the timestamp clause only for valid_at/
+# invalid_at, and nothing at all for a model that has neither.
+
+
+def test_shape_instruction_asks_for_one_compact_line_of_json(monkeypatch):
+    client, calls = _client('{"extracted_entities": []}', monkeypatch=monkeypatch)
+
+    _generate(
+        client, [Message(role="user", content="Extract.")], ExtractedEntities, 2048
+    )
+
+    sent = calls[0]["messages"][-1]["content"]
+    # the whole appended tail: graphiti's block, the item fields, the shape clause
+    block = _SCHEMA_REMINDER + json.dumps(ExtractedEntities.model_json_schema())
+    assert sent == (
+        "Extract."
+        + block
+        + "\n\n"
+        + _ITEM_REQUIREMENTS_SENTENCE
+        + "\n\n"
+        + _SHAPE_SENTENCE
+    )
+
+
+@pytest.mark.parametrize(
+    "response_model, expectation",
+    [
+        (ExtractedEdges, True),
+        (ExtractedEntities, False),
+        (NodeResolutions, False),
+    ],
+)
+def test_terse_fact_clause_follows_the_schema(monkeypatch, response_model, expectation):
+    client, calls = _client('{"x": 1}', monkeypatch=monkeypatch)
+
+    _generate(client, [Message(role="user", content="Extract.")], response_model, 2048)
+
+    sent = calls[0]["messages"][-1]["content"]
+    assert (_TERSE_FACT_SENTENCE in sent) is expectation
+
+
+@pytest.mark.parametrize(
+    "response_model, expectation",
+    [
+        (ExtractedEdges, True),
+        (ExtractedEntities, False),
+    ],
+)
+def test_timestamp_clause_follows_the_schema(monkeypatch, response_model, expectation):
+    client, calls = _client('{"x": 1}', monkeypatch=monkeypatch)
+
+    _generate(client, [Message(role="user", content="Extract.")], response_model, 2048)
+
+    sent = calls[0]["messages"][-1]["content"]
+    assert (_TIMESTAMP_SENTENCE in sent) is expectation
+
+
+def test_shape_instruction_is_appended_once_across_retries(monkeypatch):
+    # The vendored tenacity wrapper re-enters _generate_response with the same
+    # mutated message list; the shape clause must not accumulate per attempt.
+    client, _calls = _client('{"extracted_entities": []}', monkeypatch=monkeypatch)
+    messages = [Message(role="user", content="Extract entities.")]
+
+    _generate(client, messages, ExtractedEntities, 2048)
+    _generate(client, messages, ExtractedEntities, 2048)
+
+    content = messages[-1].content
+    assert content.count(_SHAPE_SENTENCE) == 1
+    assert content.count(_TERSE_FACT_SENTENCE) == 0
+
+
+def test_shape_instruction_added_when_graphiti_already_appended_its_block(
+    monkeypatch,
+):
+    # json_object mode: graphiti's own generate_response appends its verbatim
+    # block first, so the seam adds only its own clauses, never a second copy
+    # of the schema.
+    client, calls = _client(
+        '{"edges": []}', mode="json_object", monkeypatch=monkeypatch
+    )
+    messages = [
+        Message(role="system", content="You are an expert fact extractor."),
+        Message(role="user", content="Extract facts."),
+    ]
+
+    result = asyncio.run(
+        client.generate_response(messages, ExtractedEdges, 2048)
+    )
+
+    assert result == {"edges": []}
+    sent = calls[0]["messages"][-1]["content"]
+    assert sent.count(_SCHEMA_REMINDER) == 1
+    # the shape clauses are the LAST thing in the prompt: the format demand sits
+    # next to generation, which is where the multi-line body came from
+    assert sent.endswith(
+        'every item of "edges" must contain source_entity_name (string), '
+        'target_entity_name (string), relation_type (string), fact (string). '
+        'Omit any item that lacks one of its required fields.'
+        + "\n\n"
+        + _SHAPE_SENTENCE
+        + "\n\n"
+        + _TERSE_FACT_SENTENCE
+        + "\n\n"
+        + _TIMESTAMP_SENTENCE
+    )
+
+
+def test_shape_instruction_absent_without_a_response_model(monkeypatch):
+    client, calls = _client('{"anything": 1}', monkeypatch=monkeypatch)
+    content = "Extract entities and return JSON."
+
+    _generate(client, [Message(role="user", content=content)])
+
+    assert calls[0]["messages"][-1]["content"] == content
 
 
 def test_element_requirements_added_when_graphiti_already_appended_its_block(
@@ -388,10 +559,13 @@ def test_element_requirements_added_when_graphiti_already_appended_its_block(
 
     sent = calls[0]["messages"][-1]["content"]
     assert sent.count(_SCHEMA_REMINDER) == 1
+    # only the seam's own clauses follow, never a second copy of the schema
     assert sent.endswith(
         'every item of "extracted_entities" must contain name (string), '
         'entity_type_id (integer). Omit any item that lacks one of its required '
         'fields.'
+        + "\n\n"
+        + _SHAPE_SENTENCE
     )
 
 

@@ -396,6 +396,32 @@ def _schema_reminder(response_model) -> str:
     )
 
 
+def _schema_parts(response_model):
+    """``(properties, item schema per array field)`` of graphiti's response model.
+
+    ``model_json_schema()`` hides the item shape behind ``$defs`` plus a ``$ref``
+    pointer that the local 1.7B model does not resolve, so the pointer is
+    dereferenced once here and every sentence derived from the schema reads the
+    resolved fragment. An array whose items are spelled out inline (no ``$ref``)
+    keeps its own fragment, and an unresolvable ``$ref`` is dropped rather than
+    guessed. Returns ``("", {})`` for a model with no properties."""
+
+    schema = response_model.model_json_schema()
+    defs = schema.get("$defs") or {}
+    properties = schema.get("properties") or {}
+    items = {}
+    for field, info in properties.items():
+        if not isinstance(info, dict) or info.get("type") != "array":
+            continue
+        fragment = info.get("items") or {}
+        ref = fragment.get("$ref")
+        if ref:
+            fragment = defs.get(str(ref).rsplit("/", 1)[-1]) or {}
+        if fragment:
+            items[field] = fragment
+    return properties, items
+
+
 def _json_type_name(fragment) -> str:
     """A short JSON type word for a schema fragment (``$ref``/``anyOf`` → value)."""
 
@@ -426,19 +452,13 @@ def _element_requirements(response_model) -> str:
     that adds a field keeps the sentence correct. Returns ``""`` when no
     array-of-object field exists, leaving graphiti's own reminder untouched."""
 
-    schema = response_model.model_json_schema()
-    defs = schema.get("$defs") or {}
+    _properties, items = _schema_parts(response_model)
     parts = []
-    for field, info in (schema.get("properties") or {}).items():
-        if not isinstance(info, dict) or info.get("type") != "array":
-            continue
-        items = info.get("items") or {}
-        ref = items.get("$ref")
-        element = defs.get(str(ref).rsplit("/", 1)[-1], {}) if ref else items
-        required = (element or {}).get("required") or []
+    for field, element in items.items():
+        required = element.get("required") or []
         if not required:
             continue
-        properties = (element or {}).get("properties") or {}
+        properties = element.get("properties") or {}
         fields = ", ".join(
             f"{name} ({_json_type_name(properties.get(name))})" for name in required
         )
@@ -452,28 +472,96 @@ def _element_requirements(response_model) -> str:
     )
 
 
+# The response-shape clauses, appended for every graphiti prompt. The first is
+# model-independent; the other two name fields that only some response models
+# carry, so they are emitted only when the schema has them (see
+# _response_shape_instructions). They close the reminder: the format demand then
+# sits next to generation, and it names the two defects the model actually
+# produced (a body split over 232 lines, and a "// Wait, ..." line between two
+# array items — scratch/final_node.log).
+_SHAPE_CLAUSE = (
+    "Return that object as ONE compact line of JSON: no indentation, no line "
+    "breaks, no markdown code fences, no prose before or after it, and no "
+    "comments or reasoning anywhere inside it — not between its items and not "
+    "inside a value."
+)
+
+_TERSE_FACT_CLAUSE = (
+    'Write each "fact" as a short phrase naming the relation, not a sentence '
+    "copied from the text, and keep every concrete noun and number from the "
+    "source."
+)
+
+_TIMESTAMP_CLAUSE = (
+    'Keep "valid_at" and "invalid_at" null unless the text states or resolves '
+    "a date or time; never invent one, and write any timestamp at second "
+    "precision (YYYY-MM-DDTHH:MM:SSZ)."
+)
+
+
+def _response_shape_instructions(response_model) -> str:
+    """The response SHAPE to ask for, derived from the response model (#22).
+
+    Measured with the schema reminder in place (``scratch/after_fix_full.log``,
+    H1 ``--mode full``): node extraction was healthy, but ``ExtractedEdges`` ran
+    into M1's 4096-token leaf clamp — ``finish_reason=length`` on a ~14 000-char
+    PRETTY-PRINTED body whose ``fact`` values were full sentences and whose
+    ``valid_at`` carried an invented microsecond timestamp — so chunks 0/1/2 were
+    skipped by ``_TruncatedJSONError``. The clamp may not move, so the prompt
+    states the shape instead: one compact line of JSON, no commentary, short
+    ``fact`` values.
+
+    Every extra clause is triggered by a field the response model actually has,
+    so ``ExtractedEntities`` (no ``fact``) and ``NodeResolutions`` (no
+    ``valid_at``) are never asked about fields they do not carry. The clauses
+    constrain the FORMAT of values the schema already requires — they neither
+    invent a value nor drop one.
+
+    The clause order is deliberate: the schema block explains the shape, the item
+    sentence names the fields, and these clauses close the prompt so the format
+    demand sits next to generation. Measured with an earlier draft that put them
+    in the middle (``scratch/final_node.log``) that was not enough: 10/12 node
+    calls passed, both failures formatting — one body split over 232 lines, one
+    ``}  // Wait, ...`` line between two items."""
+
+    properties, items = _schema_parts(response_model)
+    fields = set(properties)
+    for element in items.values():
+        fields.update(element.get("properties") or {})
+    clauses = [_SHAPE_CLAUSE]
+    if "fact" in fields:
+        clauses.append(_TERSE_FACT_CLAUSE)
+    if "valid_at" in fields or "invalid_at" in fields:
+        clauses.append(_TIMESTAMP_CLAUSE)
+    return "\n\n" + "\n\n".join(clauses)
+
+
 def _append_schema_reminder(messages, response_model) -> None:
-    """Put graphiti's response schema into the prompt for the model (#22, R2).
+    """Put graphiti's response schema and the wanted response shape into the
+    prompt for the model (#22, R2).
 
     ``response_model`` is set for every graphiti prompt (nodes, edges, node
     dedupe, edge dedupe, summaries), whatever ``GRAPHITI_STRUCTURED_OUTPUT_MODE``
-    says, so the small model is told the key names it must emit. Idempotent:
-    graphiti itself appends the same string in json_object mode and the vendored
-    tenacity wrapper re-enters this call with the same mutated message list."""
+    says, so the small model is told the key names it must emit and the shape the
+    body must take. Idempotent: graphiti itself appends the same string in
+    json_object mode and the vendored tenacity wrapper re-enters this call with
+    the same mutated message list."""
 
     if response_model is None or not messages:
         return
     last = messages[-1]
     content = last.content or ""
     reminder = _schema_reminder(response_model)
-    requirements = _element_requirements(response_model)
-    if content.endswith(reminder + requirements):
+    tail = _element_requirements(response_model) + _response_shape_instructions(
+        response_model
+    )
+    if content.endswith(tail):
         return
     if content.endswith(reminder):
         # graphiti's own json_object path appended the schema block already
-        last.content = content + requirements
+        last.content = content + tail
         return
-    last.content = content + reminder + requirements
+    last.content = content + reminder + tail
 
 
 # Positive-only alias tables. A rename happens ONLY when graphiti's real field
