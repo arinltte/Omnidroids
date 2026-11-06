@@ -25,14 +25,12 @@ class Config:
     JSON_AS_ASCII = False
     
     # LLM配置（统一使用OpenAI格式）
-    # 默认指向本地 Ollama（经本地 /v1 转发端点，见 app/api/llm_proxy.py）
+    # 默认指向本地 /v1 转发端点（见 app/api/llm_proxy.py）
     LLM_API_KEY = os.environ.get('LLM_API_KEY')
     LLM_BASE_URL = os.environ.get('LLM_BASE_URL', 'http://localhost:5001/v1')
     LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'lfm3:latest')
 
-    # ----- 本地 LLM 控制（全部流量经 /v1 转发到下方上游 Ollama）-----
-    # 转发目标：真正提供模型的 Ollama 服务（localhost 优先，保护设备内存，单实例推理）
-    LLM_UPSTREAM_BASE_URL = os.environ.get('LLM_UPSTREAM_BASE_URL', 'http://localhost:11434')
+    # ----- 本地 LLM 控制（全部流量经 /v1 转发到本地模型运行时）-----
     # 思考模式：'none'=关闭（快、稳定）| 'high'=开启（更慢、质量更高）| 空=模型默认(默认开启更强推理)
     # 可在“AI 监控”界面实时切换，无需重启
     LLM_REASONING_EFFORT = os.environ.get('LLM_REASONING_EFFORT', 'none')
@@ -45,7 +43,7 @@ class Config:
     # Zep配置
     ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
 
-    # 图后端选择: 'zep'（默认，Zep Cloud）| 'graphiti'（本地 Graphiti + Kuzu + Ollama，
+    # 图后端选择: 'zep'（默认，Zep Cloud）| 'graphiti'（本地 Graphiti + Kuzu + 本地模型，
     # 完全本地运行、无需任何 API Key、无云端摄取超时）。切换后需重启后端。
     GRAPH_BACKEND = os.environ.get('GRAPH_BACKEND', 'zep').strip().lower()
     # 本地图谱数据根目录（每个 graph_id 一个子目录：Kuzu 库 + 本体 + 批次记录）
@@ -56,13 +54,14 @@ class Config:
     # 本地图谱使用的 LLM（默认复用 MiroFish 的本地模型；经 /v1 代理转发，思考默认关闭）
     GRAPHITI_LLM_MODEL = os.environ.get('GRAPHITI_LLM_MODEL', LLM_MODEL_NAME)
     GRAPHITI_LLM_MAX_TOKENS = int(os.environ.get('GRAPHITI_LLM_MAX_TOKENS', '2048'))
-    # 结构化输出模式：json_schema=由 Ollama 约束解码保证 JSON 结构（推荐，本地实测可靠）
-    # json_object=仅提示词约束（对小模型不稳）。
+    # 结构化输出模式：json_schema/json_object 都由 /v1 代理转换为本地运行时的
+    # 提示词级严格 JSON + 修复解析（对小模型实测可靠）。
     GRAPHITI_STRUCTURED_OUTPUT_MODE = os.environ.get('GRAPHITI_STRUCTURED_OUTPUT_MODE', 'json_schema')
-    # 本地 Embedding（Ollama nomic-embed-text:v1.5 → 768 维；更换模型需同步维度）
-    GRAPHITI_EMBEDDING_MODEL = os.environ.get('GRAPHITI_EMBEDDING_MODEL', 'nomic-embed-text:v1.5')
-    GRAPHITI_EMBEDDING_DIM = int(os.environ.get('GRAPHITI_EMBEDDING_DIM', '768'))
-    # Graphiti 内部并发（本地单模型，Ollama 天然串行；2 足够）
+    # 本地 Embedding（sentence-transformers 本地模型，B5 起进程内运行；更换模型需同步维度）
+    GRAPHITI_EMBEDDING_MODEL = os.environ.get(
+        'GRAPHITI_EMBEDDING_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
+    GRAPHITI_EMBEDDING_DIM = int(os.environ.get('GRAPHITI_EMBEDDING_DIM', '384'))
+    # Graphiti 内部并发（本地单模型顺序服务；2 足够）
     GRAPHITI_MAX_COROUTINES = int(os.environ.get('GRAPHITI_MAX_COROUTINES', '2'))
 
     @classmethod
@@ -103,7 +102,7 @@ class Config:
     REPORT_AGENT_MAX_REFLECTION_ROUNDS = int(os.environ.get('REPORT_AGENT_MAX_REFLECTION_ROUNDS', '2'))
     REPORT_AGENT_TEMPERATURE = float(os.environ.get('REPORT_AGENT_TEMPERATURE', '0.5'))
 
-    # ===== Model runtime (Phase 1: MLX/GGUF/Ollama behind the /v1 proxy, HARD UNLOAD) =====
+    # ===== Model runtime (MLX/GGUF behind the /v1 proxy, HARD UNLOAD) =====
     # 'auto' picks mlx on macOS, gguf elsewhere; user can force one in .env / Model Manager.
     MODEL_RUNTIME_BACKEND = os.environ.get('MODEL_RUNTIME_BACKEND', 'auto').strip().lower()
     # RAM budget (GB) the model manager keeps free on top of the OS (16 GB Mac → 11 GB default).
@@ -122,7 +121,7 @@ class Config:
 
     # Project root = Omnidroids/ (three levels up from this file: app/ -> backend/ -> root/).
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    # Downloaded/local model weights live ONLY inside this folder (never ~/.ollama, never global).
+    # Downloaded/local model weights live ONLY inside this folder (never global paths).
     MODELS_DIR = os.environ.get('MODELS_DIR', os.path.join(PROJECT_ROOT, 'models'))
     # Installed-model registry + role assignments (git-ignored contents except weights policy).
     MODELS_REGISTRY_PATH = os.environ.get(
@@ -141,7 +140,7 @@ class Config:
     def default_model_backend(cls) -> str:
         """Resolve MODEL_RUNTIME_BACKEND='auto' to a concrete backend for this OS."""
         forced = (cls.MODEL_RUNTIME_BACKEND or 'auto').strip().lower()
-        if forced in {'mlx', 'gguf', 'ollama'}:
+        if forced in {'mlx', 'gguf'}:
             return forced
         try:
             import platform as _p

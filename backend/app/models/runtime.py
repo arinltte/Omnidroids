@@ -1,6 +1,6 @@
 """Model runtime — interchangeable local backends behind the /v1 proxy (HARD UNLOAD).
 
-Three backends, one interface:
+Two backends, one interface (the legacy Ollama path was removed in B5, #14):
 
 * **mlx**   — macOS Apple Silicon. ``mlx_vlm`` loads the model *in this process*
   (``mlx_vlm.load`` returns ``(model, processor)``; the config rides on
@@ -15,17 +15,13 @@ Three backends, one interface:
   ``unload`` sends **SIGTERM** (never ``kill -9``) and waits for exit — the whole
   process, and its RAM, is released.
 
-* **ollama** — *legacy* compatibility only (off by default). HTTP to a running
-  Ollama; ``json_schema`` constrained decoding is only used here. ``unload`` asks
-  Ollama to evict the model (``keep_alive=0``).
-
 Backend detection (:func:`detect_backend`) inspects the downloaded files
 (``*.gguf`` → gguf ; ``config.json`` + ``*.safetensors`` → mlx) and can be
 overridden per model by the user in the Model Manager.
 
 Every runner returns a normalized :class:`GenResult`; the JSON-mode policy
-(prompt-level strict JSON + repair parser for mlx/gguf, ``json_schema`` for
-ollama) lives in the router (``manager.py``).
+(prompt-level strict JSON + repair parser, used for both backends) lives in the
+router (``manager.py``).
 """
 
 from __future__ import annotations
@@ -91,20 +87,6 @@ def _proc_tree_rss_mb(proc: Optional[psutil.Process] = None) -> int:
         return -1
 
 
-def _find_proc_listening(port: int) -> Optional[psutil.Process]:
-    """Find the process accepting on a TCP port (locate Ollama)."""
-    try:
-        for conn in psutil.net_connections(kind="tcp"):
-            if conn.laddr and conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
-                try:
-                    return psutil.Process(conn.pid)
-                except Exception:
-                    continue
-    except Exception:
-        return None
-    return None
-
-
 def _post_json(url: str, obj: Dict[str, Any], timeout: float) -> bytes:
     data = json.dumps(obj).encode("utf-8")
     req = urllib.request.Request(url, data=data,
@@ -122,8 +104,8 @@ def _get_json(url: str, timeout: float) -> Any:
 # Backend detection
 # ---------------------------------------------------------------------------
 def detect_backend(path: str, override: Optional[str] = None) -> str:
-    """Return 'mlx' | 'gguf' | 'ollama' for a local model path."""
-    if override in {"mlx", "gguf", "ollama"}:
+    """Return 'mlx' | 'gguf' for a local model path."""
+    if override in {"mlx", "gguf"}:
         return override
     p = os.path.abspath(path)
     try:
@@ -464,110 +446,6 @@ class GGUFRunner(_BaseRunner):
         logger.info("gguf unloaded %s (rss after=%dMB)", self.name, self.memory_footprint_mb())
 
 
-# ---------------------------------------------------------------------------
-# Ollama (legacy compatibility, off by default)
-# ---------------------------------------------------------------------------
-class OllamaRunner(_BaseRunner):
-    """Only used when MODEL_RUNTIME_BACKEND=ollama. Supports json_schema
-    constrained decoding (the one backend that does). Unload = keep_alive=0."""
-
-    backend = "ollama"
-
-    def __init__(self, name: str, tag: Optional[str] = None):
-        # name is the ollama model tag (e.g. 'lfm3:latest'); path is the upstream URL.
-        super().__init__(name, tag or name)
-        upstream = (Config.LLM_UPSTREAM_BASE_URL or "http://localhost:11434").rstrip("/")
-        self._base = upstream
-
-    async def load(self) -> None:
-        # Warm the model (async load) and pin a long-enough keep_alive for the phase.
-        try:
-            await asyncio.to_thread(
-                _post_json, f"{self._base}/api/generate",
-                {"model": self.name, "keep_alive": "5m", "prompt": ""},
-                max(Config.LLM_PROXY_TIMEOUT, 600),
-            )
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"ollama warm failed HTTP {exc.code}: {exc.read()[:200]!r}") from exc
-        self._loaded = True
-        logger.info("ollama warmed %s (resident≈%dMB)", self.name, self.memory_footprint_mb())
-
-    async def generate(
-        self, *, messages, max_tokens=None, temperature=0.0,
-        response_format=None, model=None,
-    ) -> GenResult:
-        if not self._loaded:
-            raise RuntimeError(f"ollama model {self.name} not warmed")
-        body: Dict[str, Any] = {
-            "model": self.name,
-            "messages": messages,
-            "temperature": float(temperature or 0.0),
-            "stream": False,
-        }
-        if response_format is not None:
-            body["response_format"] = response_format  # ollama GBNF constrained decoding
-        if max_tokens and max_tokens > 0:
-            body["max_tokens"] = int(max_tokens)
-        # Effort/parallel knobs, honouring the AI-monitor live overrides.
-        try:
-            from ..utils import llm_metrics
-            effort = llm_metrics.effective_reasoning_effort(Config.LLM_REASONING_EFFORT)
-            num_parallel = llm_metrics.effective_num_parallel(Config.LLM_NUM_PARALLEL)
-            num_ctx = llm_metrics.effective_num_ctx(Config.LLM_CONTEXT_LENGTH)
-        except Exception:
-            effort = (Config.LLM_REASONING_EFFORT or "").strip() or None
-            num_parallel = num_ctx = None
-        if effort:
-            body["reasoning_effort"] = effort
-        options = body.setdefault("options", {})
-        if num_parallel:
-            options.setdefault("num_parallel", num_parallel)
-        if num_ctx:
-            options.setdefault("num_ctx", num_ctx)
-        try:
-            raw = await asyncio.to_thread(
-                _post_json, f"{self._base}/v1/chat/completions", body, Config.LLM_PROXY_TIMEOUT
-            )
-            payload = json.loads(raw)
-        except urllib.error.HTTPError as exc:  # pragma: no cover
-            raise RuntimeError(f"ollama HTTP {exc.code}: {exc.read()[:200]!r}") from exc
-        choice = (payload.get("choices") or [{}])[0]
-        usage = payload.get("usage") or {}
-        return GenResult(
-            content=((choice.get("message") or {}).get("content") or "").strip(),
-            finish_reason=choice.get("finish_reason"),
-            prompt_tokens=usage.get("prompt_tokens"),
-            completion_tokens=usage.get("completion_tokens"),
-            model=self.name,
-        )
-
-    def memory_footprint_mb(self) -> int:
-        # Resident weight size Ollama holds for loaded models (≈ RAM in use).
-        try:
-            data = _get_json(f"{self._base}/api/ps", 3)
-            total = 0
-            for m in (data.get("models", []) if isinstance(data, dict) else []):
-                total += max(int(m.get("size") or 0), int(m.get("size_vram") or 0))
-            return int(total / (1024 * 1024))
-        except Exception:
-            proc = _find_proc_listening(11434)
-            return _proc_tree_rss_mb(proc) if proc else -1
-
-    async def unload(self) -> None:
-        if not self._loaded:
-            return
-        logger.info("ollama evicting %s (resident before≈%dMB)", self.name, self.memory_footprint_mb())
-        try:
-            await asyncio.to_thread(
-                _post_json, f"{self._base}/api/generate",
-                {"model": self.name, "keep_alive": 0}, 30,
-            )
-        except Exception as exc:  # pragma: no cover
-            logger.warning("ollama evict %s failed: %s", self.name, exc)
-        self._loaded = False
-        logger.info("ollama evicted %s (resident after≈%dMB)", self.name, self.memory_footprint_mb())
-
-
 async def _sleep(sec: float) -> None:
     import asyncio
     await asyncio.sleep(sec)
@@ -576,9 +454,7 @@ async def _sleep(sec: float) -> None:
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
-def make_runner(name: str, *, path: str, backend: Optional[str], ollama_tag: Optional[str] = None) -> _BaseRunner:
-    if backend == "ollama":
-        return OllamaRunner(name, ollama_tag or name)
+def make_runner(name: str, *, path: str, backend: Optional[str]) -> _BaseRunner:
     resolved = backend or detect_backend(path)
     if resolved == "mlx":
         return MLXRunner(name, path)
@@ -587,5 +463,5 @@ def make_runner(name: str, *, path: str, backend: Optional[str], ollama_tag: Opt
 
 __all__ = [
     "GenResult", "detect_backend", "make_runner",
-    "MLXRunner", "GGUFRunner", "OllamaRunner",
+    "MLXRunner", "GGUFRunner",
 ]

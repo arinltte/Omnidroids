@@ -4,11 +4,11 @@ Local LLM runtime endpoint (OpenAI compatible) — Omnidroids.
 Every MiroFish/OASIS client keeps sending OpenAI-format requests to
 ``LLM_BASE_URL`` (default ``http://localhost:5001/v1``). This blueprint receives
 ``POST /v1/chat/completions`` and routes it to a **local model runner** through
-the ModelManager (MLX / llama.cpp-GGUF / legacy Ollama), which loads on demand
+the ModelManager (MLX / llama.cpp-GGUF), which loads on demand
 and **hard-unloads** the model when the phase/task finishes (HANDOFF §4). The
 rest of the app and the vendored Graphiti client never change.
 
-JSON policy (§4.2): ``ollama`` keeps ``json_schema`` constrained decoding;
+JSON policy (§4.2): prompt-level strict JSON + repair parser for both backends;
 ``mlx``/``gguf`` get prompt-level strict JSON + a repair parser (handled in the
 manager). This endpoint only meters and re-shapes the OpenAI response.
 """

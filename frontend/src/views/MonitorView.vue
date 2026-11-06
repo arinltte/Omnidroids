@@ -9,22 +9,22 @@
     </header>
 
     <main class="m-body">
-      <!-- Row 1: Ollama server status + live model (memory) -->
+      <!-- Row 1: local model runtime status + live model (memory) -->
       <section class="card">
-        <div class="card-h">本地模型 / Ollama 实例 <span class="hint">（同一实例并发推理，不额外拉起进程）</span></div>
+        <div class="card-h">本地模型 / 运行时 <span class="hint">（进程内加载，按需硬卸载）</span></div>
         <div class="kv-grid">
-          <div class="kv"><span>Ollama</span><b>{{ ollama.version || '—' }} · {{ ollama.reachable ? '在线' : '离线' }}</b></div>
+          <div class="kv"><span>运行时</span><b>{{ runtime.version || '—' }} · {{ runtime.reachable ? '就绪' : '离线' }}</b></div>
           <div class="kv"><span>模型</span><b>{{ config.model || '—' }}</b></div>
-          <div class="kv"><span>转发上游</span><b>{{ config.upstream || '—' }}</b></div>
+          <div class="kv"><span>常驻内存</span><b>{{ runtime.resident_mb ? bytes(runtime.resident_mb * 1048576) : '0 B' }} / {{ runtime.ram_budget_mb ? bytes(runtime.ram_budget_mb * 1048576) : '—' }}</b></div>
           <div class="kv"><span>思考模式</span><b :class="config.thinking_off ? 'off' : 'on'">{{ config.thinking || '—' }}</b></div>
           <div class="kv"><span>并发上限</span><b>{{ config.num_parallel ?? '—' }}</b></div>
           <div class="kv"><span>上下文窗口</span><b>{{ config.num_ctx ?? '—' }}</b></div>
         </div>
-        <div v-if="ollama.models && ollama.models.length" class="loaded">
+        <div v-if="runtime.models && runtime.models.length" class="loaded">
           <table class="tbl">
             <thead><tr><th>已加载实例</th><th>规模</th><th>权重占用</th><th>显存/内存占用</th><th>量化</th></tr></thead>
             <tbody>
-              <tr v-for="m in ollama.models" :key="m.name">
+              <tr v-for="m in runtime.models" :key="m.name">
                 <td>{{ m.name }}</td>
                 <td>{{ m.parameter_size || '—' }}</td>
                 <td>{{ bytes(m.size) }}</td>
@@ -33,7 +33,7 @@
               </tr>
             </tbody>
           </table>
-          <div class="note">实例数量：<b>{{ ollama.models.length }}</b>（应为 1；配合 并发上限 同时服务多个子 Agent）</div>
+          <div class="note">已加载实例数：<b>{{ runtime.models.length }}</b>（并发上限内的模型常驻；空闲超时后自动硬卸载）</div>
         </div>
         <div v-else class="empty">暂无已加载实例（首次请求后或空闲超时后会在此显示）。</div>
       </section>
@@ -109,7 +109,7 @@ import { getLlmStatus, getLlmMetrics, getLlmConfig, setLlmConfig } from '../api/
 const router = useRouter()
 const goBack = () => router.back()
 
-const ollama = ref({ reachable: false, version: null, models: [], error: null })
+const runtime = ref({ reachable: false, version: null, models: [], error: null })
 const config = ref({})
 const m = ref({})
 const paused = ref(false)
@@ -117,16 +117,16 @@ const numParallelCtl = ref(4)
 const numCtxCtl = ref(8192)
 let timer = null
 
-const connClass = computed(() => (ollama.value.reachable ? 'ok' : 'bad'))
-const connText = computed(() => (ollama.value.reachable ? 'Ollama 在线' : 'Ollama 离线'))
+const connClass = computed(() => (runtime.value.reachable ? 'ok' : 'bad'))
+const connText = computed(() => (runtime.value.reachable ? '运行时就绪' : '运行时离线'))
 
 const refresh = async () => {
   try {
     const s = await getLlmStatus()
-    if (s.data?.success) { ollama.value = s.data.ollama; config.value = s.data.config }
+    if (s.data?.success) { runtime.value = s.data.runtime; config.value = s.data.config }
     numParallelCtl.value = config.value.num_parallel ?? 4
     numCtxCtl.value = config.value.num_ctx ?? 8192
-  } catch (e) { ollama.value.reachable = false }
+  } catch (e) { runtime.value.reachable = false }
   try {
     const me = await getLlmMetrics(80)
     if (me.data?.success) { m.value = me.data.metrics; config.value = me.data.config }

@@ -14,8 +14,7 @@ without an owning phase load on demand and are released by the idle monitor
 (default 120 s) — so a crashed/abandoned phase can never pin RAM. Every phase
 logs RSS before/after into the run log (the Model Manager + mem_check surface it).
 
-JSON policy (§4.2): the ``ollama`` backend keeps ``json_schema`` constrained
-decoding; ``mlx``/``gguf`` use prompt-level strict JSON + a repair parser.
+JSON policy (§4.2): prompt-level strict JSON + a repair parser for both backends.
 """
 
 from __future__ import annotations
@@ -149,12 +148,7 @@ class ModelManager:
                 entry = self.store.get_model(name)
                 if entry:
                     return (slot, entry, entry.get("backend"))
-        # 3) legacy ollama ad-hoc: treat the request model string as an ollama tag
-        if Config.default_model_backend() == "ollama" and model:
-            entry = {"name": model, "path": model, "backend": "ollama",
-                     "ollama_tag": model, "ad_hoc": True}
-            return (f"ollama:{model}", entry, "ollama")
-        # 4) fall back to small role for unnamed/default-model requests
+        # 3) fall back to small role for unnamed/default-model requests
         name = self.store.model_for_role("small")
         if name:
             entry = self.store.get_model(name)
@@ -223,7 +217,7 @@ class ModelManager:
 
         name = entry["name"]
         path = entry.get("path") or ""
-        forced = backend if backend in {"mlx", "gguf", "ollama"} else None
+        forced = backend if backend in {"mlx", "gguf"} else None
         try:
             resolved = forced or detect_backend(path)
         except Exception:
@@ -252,8 +246,7 @@ class ModelManager:
                     f"{violation} and the resident model(s) are in an active phase. "
                     "Close them, or raise the Model Manager settings.")
 
-        runner = make_runner(name, path=path, backend=resolved,
-                              ollama_tag=entry.get("ollama_tag"))
+        runner = make_runner(name, path=path, backend=resolved)
         rss_before = _proc_rss_mb()
         logger.info("model loading %s (backend=%s, est=%dMB, rss=%dMB)", name, resolved, est_mb, rss_before)
         try:
@@ -386,7 +379,7 @@ class ModelManager:
         )
         eff_messages = messages
         eff_response_format = response_format
-        if json_mode and lm.backend != "ollama":
+        if json_mode:
             eff_messages = self._augment_strict_json(messages)
             eff_response_format = None
         try:
@@ -400,7 +393,7 @@ class ModelManager:
             raise
         with self._lock:
             lm.last_used = time.time()
-        if json_mode and lm.backend != "ollama":
+        if json_mode:
             repaired = self._repair_json(result.content)
             result.content = repaired
         return result

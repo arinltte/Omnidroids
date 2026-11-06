@@ -3,8 +3,8 @@
 Replaces Zep Cloud with **Graphiti** running fully on-device:
 
 * embedded graph store: **Kuzu** (no DB server, no connection, no key)
-* LLM: local Ollama ``lfm3`` via the MiroFish ``/v1`` proxy (thinking OFF)
-* embeddings: local Ollama ``nomic-embed-text``
+* LLM: local model (mlx-vlm / llama.cpp) via our own ``/v1`` proxy
+* embeddings: local sentence-transformers model, in this process (B5, #14)
 * reranker: local no-op
 
 The public surface intentionally mirrors the parts of the ``zep_cloud`` SDK that
@@ -48,6 +48,8 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from ..config import Config
+from graphiti_core.embedder.client import EmbedderClient
+
 from .logger import get_logger
 
 logger = get_logger("mirofish.graphiti_zep")
@@ -351,7 +353,7 @@ class _TruncatedJSONError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Local Graphiti clients (Ollama-backed LLM, embedder, no-op reranker)
+# Local Graphiti clients (local-runtime LLM, local embedder, no-op reranker)
 # ---------------------------------------------------------------------------
 
 
@@ -421,16 +423,17 @@ def _build_llm_client():
     base_url = (Config.LLM_BASE_URL or "http://localhost:5001/v1").rstrip("/")
     model = Config.GRAPHITI_LLM_MODEL or Config.LLM_MODEL_NAME
     config = LLMConfig(
-        api_key=Config.LLM_API_KEY or "ollama-local",
+        api_key=Config.LLM_API_KEY or "local",
         model=model,
         small_model=model,
         base_url=base_url,
         temperature=0.0,
         max_tokens=Config.GRAPHITI_LLM_MAX_TOKENS,
     )
-    # Ollama 0.40+ enforces json_schema on /v1/chat/completions (constrained
-    # decoding), which keeps the 1.7B model on the exact response shape graphiti
-    # validates — verified with graphiti's ExtractedEntities/ExtractedEdges.
+    # Our /v1 proxy routes json_schema/json_object asks into its prompt-level
+    # strict-JSON mode (+ repair parser) for local backends, which keeps the
+    # small model on the exact response shape graphiti validates — verified
+    # with graphiti's ExtractedEntities/ExtractedEdges.
     #
     # max_tokens must be passed to the CLIENT constructor, not only via LLMConfig:
     # LLMClient.__init__ sets self.max_tokens = config.max_tokens, but
@@ -453,23 +456,36 @@ def _build_llm_client():
     )
 
 
+class _LocalSentenceTransformerEmbedder(EmbedderClient):
+    """Embeddings from a local sentence-transformers model, in this process.
+
+    B5 (#14): embeddings used to be fetched from an external server; they now
+    run a local model (cached under the confined HF cache) so the graph
+    backend has no external dependency at all. The CPU/GPU encode call runs in
+    a worker thread to keep the event loop responsive.
+    """
+
+    def __init__(self, model_name: str, embedding_dim: int):
+        from sentence_transformers import SentenceTransformer
+        self._model = SentenceTransformer(model_name)
+        self._dim = embedding_dim
+        logger.info("local embedder ready: %s (dim=%d)",
+                    model_name, self._model.get_sentence_embedding_dimension())
+
+    async def create(self, input_data) -> List[float]:
+        first = input_data[0] if isinstance(input_data, (list, tuple)) else input_data
+        vec = await asyncio.to_thread(self._model.encode, str(first))
+        return [float(x) for x in vec[: self._dim]]
+
+    async def create_batch(self, input_data_list: List[str]) -> List[List[float]]:
+        vecs = await asyncio.to_thread(
+            self._model.encode, [str(t) for t in input_data_list])
+        return [[float(x) for x in v[: self._dim]] for v in vecs]
+
+
 def _build_embedder():
-    from openai import AsyncOpenAI
-
-    from graphiti_core.embedder import OpenAIEmbedder, OpenAIEmbedderConfig
-
-    upstream = (Config.LLM_UPSTREAM_BASE_URL or "http://localhost:11434").rstrip("/")
-    base_url = f"{upstream}/v1"
-    config = OpenAIEmbedderConfig(
-        embedding_model=Config.GRAPHITI_EMBEDDING_MODEL,
-        embedding_dim=Config.GRAPHITI_EMBEDDING_DIM,
-        api_key="ollama-local",
-        base_url=base_url,
-    )
-    return OpenAIEmbedder(
-        config=config,
-        client=AsyncOpenAI(api_key="ollama-local", base_url=base_url),
-    )
+    return _LocalSentenceTransformerEmbedder(
+        Config.GRAPHITI_EMBEDDING_MODEL, Config.GRAPHITI_EMBEDDING_DIM)
 
 
 async def _ensure_fts_indexes(driver) -> None:

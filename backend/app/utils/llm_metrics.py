@@ -202,45 +202,32 @@ def snapshot(limit_recent: int = 60) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
-# Ollama server introspection (loaded models + memory) for the GUI
+# Local model-runtime introspection (loaded models + memory) for the GUI
 # --------------------------------------------------------------------------
-def _http_get_json(url: str, timeout: float = 6.0) -> Any:
+def runtime_status() -> Dict[str, Any]:
+    """Local runtime status for the monitor UI (B5 #14): the loaded local models
+    with their footprints, plus resident/process RSS and the RAM budget."""
+    status: Dict[str, Any] = {"reachable": True, "version": None, "models": [], "error": None}
     try:
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read())
+        from ..models.manager import get_model_manager
+        s = get_model_manager().status()
+        status["version"] = s.get("backend_default")
+        status["models"] = [
+            {
+                "name": lm["name"],
+                "size": int((lm.get("footprint_mb") or 0) * 1024 * 1024),
+                "size_vram": None,
+                "parameter_size": None,
+                "quantization": lm.get("backend"),
+                "expires_at": f"idle {lm.get('idle_s')}s",
+            }
+            for lm in s.get("loaded", []) if lm.get("loaded")
+        ]
+        status["resident_mb"] = s.get("resident_mb")
+        status["process_rss_mb"] = s.get("process_rss_mb")
+        status["ram_budget_mb"] = s.get("ram_budget_mb")
     except Exception as exc:  # pragma: no cover - surfaced to UI as status
-        raise
-
-
-def ollama_status(upstream_base: str) -> Dict[str, Any]:
-    """Return Ollama version + loaded models (name/size/context/VRAM) if reachable."""
-    base = (upstream_base or "http://localhost:11434").rstrip("/")
-    status: Dict[str, Any] = {"reachable": False, "version": None, "models": [], "error": None}
-    try:
-        version = _http_get_json(f"{base}/api/version")
-        status["reachable"] = True
-        status["version"] = (version or {}).get("version")
-    except Exception as exc:
-        status["error"] = f"version: {exc}"
-
-    try:
-        ps = _http_get_json(f"{base}/api/ps")
-        models = []
-        for m in ps.get("models", []) if isinstance(ps, dict) else []:
-            models.append(
-                {
-                    "name": m.get("name") or m.get("model"),
-                    "size": m.get("size"),
-                    "size_vram": m.get("size_vram"),
-                    "parameter_size": m.get("details", {}).get("parameter_size"),
-                    "quantization": m.get("details", {}).get("quantization_level"),
-                    "expires_at": m.get("expires_at"),
-                }
-            )
-        status["models"] = models
-        status["reachable"] = True
-    except Exception as exc:
-        status["error"] = (status.get("error") + " | " if status.get("error") else "") + f"ps: {exc}"
-
+        status["error"] = str(exc)
     return status
+
+
