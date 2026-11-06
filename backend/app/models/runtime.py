@@ -2,10 +2,13 @@
 
 Three backends, one interface:
 
-* **mlx**   — macOS Apple Silicon. ``mlx_lm`` loads the model *in this process*.
-  ``generate`` runs the blocking Metal call in a worker thread so the event loop
-  stays responsive. ``unload`` drops the reference, ``gc.collect()`` and clears
-  the Metal cache — our own RSS falls, which is the cleanest proof of release.
+* **mlx**   — macOS Apple Silicon. ``mlx_vlm`` loads the model *in this process*
+  (``mlx_vlm.load`` returns ``(model, processor)``; the config rides on
+  ``model.config``). ``generate`` applies no chat template — we template the
+  conversation ourselves (text-only path: no image/audio/video), run the blocking
+  Metal call in a worker thread so the event loop stays responsive, and read the
+  normalized ``GenerationResult``. ``unload`` drops the references, ``gc.collect()``
+  and clears the Metal cache — our own RSS falls, the cleanest proof of release.
 
 * **gguf**  — cross-platform (incl. Windows). A ``llama-server`` subprocess serves
   an OpenAI-compatible ``/v1``. ``load`` spawns it and waits for ``/health``;
@@ -203,14 +206,15 @@ class MLXRunner(_BaseRunner):
     def __init__(self, name: str, path: str):
         super().__init__(name, path)
         self._model = None
-        self._tok = None
+        self._processor = None
 
     async def load(self) -> None:
         try:
-            import mlx_lm  # noqa: F401
+            import mlx_vlm  # noqa: F401
         except Exception as exc:  # pragma: no cover - install-time guard
             raise RuntimeError(
-                "MLX backend requires macOS with 'mlx-lm' installed (uv pip install mlx-lm)"
+                "MLX backend requires macOS with 'mlx-vlm' installed "
+                "(cd backend && uv sync --extra mlx)"
             ) from exc
         from concurrent.futures import ThreadPoolExecutor
 
@@ -219,13 +223,15 @@ class MLXRunner(_BaseRunner):
         path = self.path
 
         def _load():
-            import mlx_lm
-            model, tok = mlx_lm.load(path)
+            import mlx_vlm
+            # mlx_vlm.load returns (model, processor) — a 2-tuple; the model config
+            # (chat template, eos ids) rides on model.config.
+            model, processor = mlx_vlm.load(path)
             mx.eval(model.parameters())
-            return model, tok
+            return model, processor
 
         with ThreadPoolExecutor(max_workers=1) as ex:
-            self._model, self._tok = ex.submit(_load).result()
+            self._model, self._processor = ex.submit(_load).result()
         self._loaded = True
         logger.info(
             "mlx loaded %s (rss=%dMB)", self.name, self.memory_footprint_mb()
@@ -237,13 +243,17 @@ class MLXRunner(_BaseRunner):
     ) -> GenResult:
         if not self._loaded:
             raise RuntimeError(f"MLX model {self.name} not loaded")
-        import asyncio
 
         def _gen() -> GenResult:
-            import mlx_lm
+            import mlx_vlm
+            # mlx_vlm.generate applies NO chat template: template the conversation
+            # ourselves. apply_chat_template accepts the message list directly
+            # (mlx_vlm/chat.py passes self.history the same way). Text-only path:
+            # image/audio/video stay None.
             try:
-                prompt = mlx_lm.apply_chat_template(
-                    self._tok, conversation=messages, add_generation_prompt=True
+                prompt = mlx_vlm.apply_chat_template(
+                    self._processor, self._model.config, messages,
+                    add_generation_prompt=True,
                 )
             except Exception:
                 # Fallback: naive role-tagged prompt.
@@ -254,12 +264,17 @@ class MLXRunner(_BaseRunner):
             if max_tokens and max_tokens > 0:
                 kwargs["max_tokens"] = int(max_tokens)
             if temperature and temperature > 0:
-                kwargs["temp"] = float(temperature)
-            text = mlx_lm.generate(self._model, self._tok, prompt=prompt, **kwargs)
-            finish = "length" if (max_tokens) else "stop"
+                # mlx_vlm resolves sampling defaults from the checkpoint's
+                # generation_config.json when temperature is omitted; pass it
+                # through only when the caller asks for it.
+                kwargs["temperature"] = float(temperature)
+            result = mlx_vlm.generate(self._model, self._processor, prompt, **kwargs)
+            finish = result.finish_reason or ("length" if max_tokens else "stop")
             return GenResult(
-                content=(text or "").strip(),
+                content=(getattr(result, "text", "") or "").strip(),
                 finish_reason=finish,
+                prompt_tokens=result.prompt_tokens or None,
+                completion_tokens=result.generation_tokens or None,
                 model=self.name,
             )
 
@@ -270,7 +285,7 @@ class MLXRunner(_BaseRunner):
             return
         logger.info("mlx unloading %s (rss before=%dMB)", self.name, self.memory_footprint_mb())
         self._model = None
-        self._tok = None
+        self._processor = None
         try:
             import mlx.core as mx
             gc.collect()
