@@ -5,8 +5,11 @@ build a local knowledge graph, generate agent personas, run a local multi-agent
 simulation, and produce a report with interactive Q&A — **entirely on your own
 machine. No cloud services**.
 
-> **Status: Phase 0 — skeleton.** Built from the validated `MiroFish` reference.
-> See [`HANDOFF.md`](./HANDOFF.md) for the full build spec and phased plan, and
+> **Status: Phases 0–6 built out — functional end-to-end on macOS (MLX).** Model
+> runtime with hard unload, Model Manager, sessions main page with resume, local
+> Graphiti/Kuzu graph, local embeddings, launcher + single-process SPA serving,
+> light/dark appearance. Remaining items are tracked as GitHub issues (see
+> [`HANDOFF.md`](./HANDOFF.md) §6). AGPL-3.0 derivative of `MiroFish`; see
 > [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) for licensing.
 
 ## License / Attribution

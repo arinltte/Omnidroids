@@ -19,10 +19,12 @@ lands in `~/.cache`).
 | Slot | Model | Repo | Size on disk | Backend |
 |---|---|---|---|---|
 | `small` | **LFM3-1.7B-MLX-4bit** | `LiquidAI/LFM3-1.7B-MLX-4bit` | 0.99 GB | mlx |
-| `small` (fallback) | LFM3-1.7B-MLX-8bit | `LiquidAI/LFM3-1.7B-MLX-8bit` | 1.86 GB | mlx |
 | `big` | **Ornith-1.5-9B-MLX-6bit** | `ornith-ai/Ornith-1.5-9B-MLX-6bit` | 7.30 GB | mlx |
-| `big` (fallback) | Ornith-1.5-9B-MLX-4bit | `ornith-ai/Ornith-1.5-9B-MLX-4bit` | 5.06 GB | mlx |
 | `embed` | **snowflake-arctic-embed-s** | `Snowflake/snowflake-arctic-embed-s` | 33M params (8 MB RSS Δ) | sentence-transformers (in-process) |
+
+The quant *fallbacks* (LFM3-1.7B-MLX-8bit, Ornith-1.5-9B-MLX-4bit) were deleted
+on 2026-11-07 to reclaim ~6.4 GB — both were measured (tables below), neither is
+assigned a role. Re-download with the Model Manager if a fallback is needed.
 
 ## 2. Small model — LFM3-1.7B-MLX 4-bit vs 8-bit (`scratch/small_bakeoff.py`)
 
@@ -43,8 +45,8 @@ was byte-identical apart from trailing whitespace.
 **Decision (spec §6 rule — "if 8-bit ≈ 4-bit in quality, take the 4-bit
 terminal-throughput winner"):** 4-bit is `small`. It is **1.75× the JSON
 throughput** (86.0 vs 49.1 tok/s) with **694 MB less peak RSS**, at equal
-fixture quality and 100% JSON validity in both. The 8-bit stays registered as
-the documented fallback.
+fixture quality and 100% JSON validity in both. The 8-bit weights were deleted
+in session 5; re-download on demand (see §1).
 
 ## 3. Big model — Ornith-1.5-9B-MLX-6bit acceptance (`scratch/bigmodel_eval.py`)
 
@@ -60,7 +62,8 @@ Five checks through the same phase path + `/v1` proxy. Log
 | grounded (must not fabricate outside the bundle) | PASS | 2.9 s |
 | **suite** | **5/5 PASS** | — |
 
-Against the 4-bit fallback (`scratch/bigmodel_eval_4bit.log`, also 5/5):
+Against the 4-bit quant (measured before its weights were deleted; log
+`scratch/bigmodel_eval_4bit.log`, also 5/5):
 
 | check | 6-bit (chosen) | 4-bit (fallback) |
 |---|---|---|
@@ -133,12 +136,22 @@ second episode is the cold-start LLM call), search 0.0 s. Clean SIGTERM exit.
 
 ## 7. Speed plan — expected vs measured (spec §7)
 
-The §7 estimates (ingestion ~90→25–35 min, personas ~25→6–10 min on the
-53-chunk reference workload) were projections made before the runtime work. What
-is measured so far: the small model's 86 tok/s JSON throughput, the per-episode
-ingest times above, and the co-residency headroom. A full 53-chunk wall-time
-re-measurement on the Omnidroids pipeline has **not** been run yet — it is the
-next measurement and belongs in this doc (§12 acceptance criterion 3 records it).
+The §7 projections were estimates made before the runtime work. What is measured
+so far: the small model's 86 tok/s JSON throughput, the per-episode ingest times
+above, and the co-residency headroom. A full 53-chunk wall-time re-measurement on
+the Omnidroids pipeline has **not** been run yet — it is the next measurement and
+belongs in this doc (§12 acceptance criterion 3 records it).
+
+## 7b. Open finding — extraction quality on the real pipeline (issue #22)
+
+The §2/§6 fixture results above are **fixture-level only**. The §12.4 acceptance
+run (2026-11-07) ingested a real document and **all 19 chunks were skipped**: the
+4-bit does not reliably produce graphiti's exact extraction schema (malformed
+JSON, and valid JSON with `entities` instead of `extracted_entities`), while the
+hand-written probe prompt passes at every token cap
+(`scratch/extraction_truncation_probe.py`). Do not treat §2's 100% JSON validity
+as pipeline-valid — close #22 and re-measure a 5-chunk ingestion (target: 0
+skips) before quoting a skip rate for the pipeline.
 
 ## 8. Reproduce
 
