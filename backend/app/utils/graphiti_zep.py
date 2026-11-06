@@ -465,27 +465,34 @@ class _LocalSentenceTransformerEmbedder(EmbedderClient):
     a worker thread to keep the event loop responsive.
     """
 
-    def __init__(self, model_name: str, embedding_dim: int):
+    def __init__(self, model_name: str, embedding_dim: int,
+                 query_prompt: str = ""):
         from sentence_transformers import SentenceTransformer
         self._model = SentenceTransformer(model_name)
         self._dim = embedding_dim
+        # asymmetric retrieval models ship a query/encoding prompt; apply it to
+        # every encode so create() (queries AND single facts) and create_batch()
+        # (fact batches) stay in one vector space (bake-off: 6/6 either way).
+        self._prompt = query_prompt or ""
         logger.info("local embedder ready: %s (dim=%d)",
                     model_name, self._model.get_sentence_embedding_dimension())
 
     async def create(self, input_data) -> List[float]:
         first = input_data[0] if isinstance(input_data, (list, tuple)) else input_data
-        vec = await asyncio.to_thread(self._model.encode, str(first))
+        text = self._prompt + str(first)
+        vec = await asyncio.to_thread(self._model.encode, text)
         return [float(x) for x in vec[: self._dim]]
 
     async def create_batch(self, input_data_list: List[str]) -> List[List[float]]:
-        vecs = await asyncio.to_thread(
-            self._model.encode, [str(t) for t in input_data_list])
+        texts = [self._prompt + str(t) for t in input_data_list]
+        vecs = await asyncio.to_thread(self._model.encode, texts)
         return [[float(x) for x in v[: self._dim]] for v in vecs]
 
 
 def _build_embedder():
     return _LocalSentenceTransformerEmbedder(
-        Config.GRAPHITI_EMBEDDING_MODEL, Config.GRAPHITI_EMBEDDING_DIM)
+        Config.GRAPHITI_EMBEDDING_MODEL, Config.GRAPHITI_EMBEDDING_DIM,
+        getattr(Config, "GRAPHITI_EMBEDDING_QUERY_PROMPT", "") or "")
 
 
 async def _ensure_fts_indexes(driver) -> None:

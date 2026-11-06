@@ -57,10 +57,17 @@ class Config:
     # 结构化输出模式：json_schema/json_object 都由 /v1 代理转换为本地运行时的
     # 提示词级严格 JSON + 修复解析（对小模型实测可靠）。
     GRAPHITI_STRUCTURED_OUTPUT_MODE = os.environ.get('GRAPHITI_STRUCTURED_OUTPUT_MODE', 'json_schema')
-    # 本地 Embedding（sentence-transformers 本地模型，B5 起进程内运行；更换模型需同步维度）
+    # 本地 Embedding（sentence-transformers 本地模型，B5 起进程内运行；更换模型需同步维度）。
+    # 默认 Snowflake/snowflake-arctic-embed-s（384-d，33M）：本地烘焙中检索准确率
+    # 6/6、吞吐 ~400 docs/s、单条延迟 ~13ms，均优于 MiniLM-L6-v2（5/6、74/s、38ms）与
+    # granite-97m 多语言版（5/6、56/s、97M 参数）——见 scratch/embedder_bakeoff.py。
     GRAPHITI_EMBEDDING_MODEL = os.environ.get(
-        'GRAPHITI_EMBEDDING_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
+        'GRAPHITI_EMBEDDING_MODEL', 'Snowflake/snowflake-arctic-embed-s')
     GRAPHITI_EMBEDDING_DIM = int(os.environ.get('GRAPHITI_EMBEDDING_DIM', '384'))
+    # arctic 的非对称检索提示（查询/文档两侧都加；对称使用时同样 6/6，无副作用）
+    GRAPHITI_EMBEDDING_QUERY_PROMPT = os.environ.get(
+        'GRAPHITI_EMBEDDING_QUERY_PROMPT',
+        'Represent this sentence for searching relevant passages: ')
     # Graphiti 内部并发（本地单模型顺序服务；2 足够）
     GRAPHITI_MAX_COROUTINES = int(os.environ.get('GRAPHITI_MAX_COROUTINES', '2'))
 

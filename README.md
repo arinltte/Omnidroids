@@ -104,7 +104,8 @@ MODEL=Ornith-1.5-9B-MLX-6bit .venv/bin/python3 ../scratch/bigmodel_eval.py
 
 Registered roles (git-ignored `models/registry.json`, set in the Models UI):
 `small` = `LiquidAI/LFM3-1.7B-MLX-4bit`, `big` = `ornith-ai/Ornith-1.5-9B-MLX-6bit`
-(A7 decision in GitHub issue #5; embeddings run locally via sentence-transformers).
+(A7 decision in GitHub issue #5; embeddings run locally via sentence-transformers —
+`Snowflake/snowflake-arctic-embed-s` 384-d, see the bake-off in `scratch/embedder_bakeoff.py`).
 
 ## Model Manager (later phase)
 
