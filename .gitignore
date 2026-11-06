@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Runtime data & logs
+logs/
+data/
+uploads/
+scratch/
+
+# HuggingFace cache + local model weights — NEVER committed.
+# HF_HOME is pointed at ./.cache/hf (see launcher) so nothing lands in ~/.cache.
+.cache/
+models/*
+!models/README.md
+
+# Secrets
+.env
+
+# OS
+.DS_Store
+
+# Internal session notes (never published)
+NEXT_SESSION_PROMPT*

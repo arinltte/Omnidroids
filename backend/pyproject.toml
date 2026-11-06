@@ -1,0 +1,73 @@
+# Omnidroids backend — derived from MiroFish (AGPL-3.0). AGPL-3.0-or-later.
+[project]
+name = "omnidroids-backend"
+version = "0.1.0"
+description = "Omnidroids — personal fully-local multi-agent prediction platform (derived from MiroFish)"
+requires-python = ">=3.11,<3.13"
+license = { text = "AGPL-3.0" }
+authors = [
+    { name = "Omnidroids (derived from MiroFish contributors)" }
+]
+
+dependencies = [
+    # 核心框架 / core framework
+    "flask>=3.0.0",
+    "flask-cors>=6.0.0",
+
+    # LLM 相关 / OpenAI-compatible SDK
+    "openai>=1.0.0",
+
+    # zep_cloud SDK surface — graphiti_zep.py MIRRORS this client namespace so the
+    # service layer talks to either Zep Cloud or local Graphiti through one seam.
+    # The backend also imports it directly; keep it declared.
+    "zep-cloud==3.25.0",
+    "httpx>=0.27.0",
+
+    # OASIS 社交媒体模拟
+    "camel-oasis==0.2.5",
+    "camel-ai==0.2.78",
+
+    # 本地图记忆后端 / local graph-memory backend (validated 2026-11-06, 53-chunk build).
+    # Pinned to the validated versions; graphiti_core lives in the same venv the
+    # M1/M2/M3 reliability fixes in app/utils/graphiti_zep.py were tuned against.
+    "graphiti-core==0.31.2",  # Apache-2.0 temporal graph engine
+    "kuzu==0.11.3",           # MIT embedded graph store used by graphiti
+
+    # 文件处理
+    "PyMuPDF>=1.24.0",
+    # 编码检测（支持非UTF-8编码的文本文件）
+    "charset-normalizer>=3.0.0",
+    "chardet>=5.0.0",
+
+    # 工具库
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "psutil>=5.9.0",          # RSS/iogpu measurement for the hard-unload memory guard
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pipreqs>=0.5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# Reproduce the validated reference venv: camel-oasis pins neo4j==5.23.0 and the
+# validated graphiti-core (0.31.2) only *declares* neo4j>=5.26.0 but does not use
+# a newer API on the Kuzu path (the reference completed the 53-chunk build with
+# neo4j 5.23.0). Force the validated pin so both can co-exist under uv resolution.
+[tool.uv]
+override-dependencies = ["neo4j==5.23.0"]
