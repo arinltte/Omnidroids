@@ -1,7 +1,7 @@
 """
 供“AI 监控”界面读取/控制的只读+少量写端点。
 
-  GET  /api/llm/status   -> Ollama 是否可达、版本、已加载模型(占用内存/上下文)、当前 LLM 配置
+  GET  /api/llm/status   -> 本地模型运行时状态、已加载模型(占用内存)、当前 LLM 配置
   GET  /api/llm/metrics  -> 经由 /v1 的累计使用量 + 最近调用明细
   GET  /api/llm/config   -> 当前生效的思考模式 / 并发 / 上下文
   POST /api/llm/config   -> 运行时实时切换 {reasoning_effort, num_parallel, num_ctx}
@@ -21,7 +21,6 @@ def _effective_config() -> dict:
     return {
         "base_url": Config.LLM_BASE_URL,
         "model": Config.LLM_MODEL_NAME,
-        "upstream": Config.LLM_UPSTREAM_BASE_URL,
         "reasoning_effort": effort or "",
         "thinking": llm_metrics.thinking_label(effort),
         "thinking_off": llm_metrics.is_thinking_off(effort),
@@ -54,8 +53,8 @@ def set_config():
 
 @llm_monitor_bp.route("/status", methods=["GET"])
 def status():
-    ollama = llm_metrics.ollama_status(Config.LLM_UPSTREAM_BASE_URL)
-    return jsonify({"success": True, "ollama": ollama, "config": _effective_config()})
+    runtime = llm_metrics.runtime_status()
+    return jsonify({"success": True, "runtime": runtime, "config": _effective_config()})
 
 
 @llm_monitor_bp.route("/metrics", methods=["GET"])

@@ -32,9 +32,10 @@ corresponding source, including over a network).
   Zep-compatible client seam (`backend/app/utils/graphiti_zep.py`). Cognee and
   Semantica are evaluated as alternatives in a bake-off (`HANDOFF.md` §3.2).
 - **Model runtime** — models load on demand and are **hard-unloaded from memory
-  when each task finishes** (a binding requirement). Backends: **MLX** (macOS),
-  **llama.cpp GGUF** (cross-platform incl. Windows), Ollama (legacy, off by
-  default). One internal OpenAI-compatible `/v1` surface everything points at.
+  when each task finishes** (a binding requirement). Backends: **MLX** (macOS,
+  in-process via `mlx-vlm`) and **llama.cpp GGUF** (cross-platform incl. Windows).
+  One internal OpenAI-compatible `/v1` surface everything points at. (The legacy
+  Ollama path was removed in B5 — nothing in the runtime depends on it.)
 - **Two models, one 16 GB device** — a small model for parallel work (ingestion,
   personas); a larger model for report synthesis and Q&A (sequential phases,
   RAM-budget guarded, unloaded after each phase).
@@ -59,7 +60,7 @@ corresponding source, including over a network).
 
 ```bash
 # 1. backend deps  (creates backend/.venv; graphiti/kuzu/psutil are declared deps)
-#    gguf/ollama runtimes work on any OS; add the mlx extra on Apple Silicon:
+#    the gguf runtime works on any OS; add the mlx extra on Apple Silicon:
 cd backend
 uv sync
 uv sync --extra mlx         # macOS only: in-process MLX inference backend
@@ -91,21 +92,20 @@ demand / hard-unload when the task ends** (a binding requirement). Backends:
   cache so our own RSS falls.
 - **gguf** — cross-platform incl. Windows; a `llama-server` subprocess; unload is
   a `SIGTERM` (never `kill -9`) so the whole process, and its RAM, is released.
-- **ollama** — *legacy* compatibility only (off by default).
 
 Verify the hard-unload guarantee (HANDOFF §12.3):
 
 ```bash
 cd backend
-MODEL=lfm3:latest BACKEND=ollama .venv/bin/python3 ../scratch/mem_check.py
+MODEL=LFM3-1.7B-MLX-4bit .venv/bin/python3 ../scratch/mem_check.py   # any registered local model
+MODEL=Ornith-1.5-9B-MLX-6bit .venv/bin/python3 ../scratch/bigmodel_eval.py
 # -> per-phase process RSS + resident-model footprint, asserting release.
 ```
 
-> **Known gap (owner decision pending):** the installed `mlx-lm` (0.32.2) does
-> not implement the `lfm3` architecture, so `LiquidAI/LFM3-1.7B-MLX-*` may not
-> load on MLX. The GGUF path likewise needs a real `*.gguf` (Ollama keeps `lfm3`
-> as opaque sharded blobs). The legacy Ollama backend runs `lfm3` today. See
-> `HANDOFF.md` §5.2/§6 for the model decision.
+Registered roles (git-ignored `models/registry.json`, set in the Models UI):
+`small` = `LiquidAI/LFM3-1.7B-MLX-4bit`, `big` = `ornith-ai/Ornith-1.5-9B-MLX-6bit`
+(A7 decision in GitHub issue #5; embeddings run locally via sentence-transformers —
+`Snowflake/snowflake-arctic-embed-s` 384-d, see the bake-off in `scratch/embedder_bakeoff.py`).
 
 ## Model Manager (later phase)
 

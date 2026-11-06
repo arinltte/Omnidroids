@@ -74,7 +74,7 @@ class ModelStore:
 
     def add_model(
         self, *, name: str, repo_id: str, path: str, backend: str,
-        size_bytes: int = 0, ollama_tag: Optional[str] = None,
+        size_bytes: int = 0,
     ) -> Dict[str, Any]:
         entry = {
             "name": name,
@@ -84,8 +84,6 @@ class ModelStore:
             "size_bytes": int(size_bytes or 0),
             "added_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
-        if ollama_tag:
-            entry["ollama_tag"] = ollama_tag
         with self._lock:
             self._data["models"][name] = entry
             self._save()
