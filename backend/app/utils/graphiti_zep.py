@@ -372,6 +372,232 @@ def _noop_reranker_class():
 _NoOpReranker = _noop_reranker_class()
 
 
+# ---------------------------------------------------------------------------
+# Extraction-schema plumbing for the local small model (issue #22)
+# ---------------------------------------------------------------------------
+#
+# The 2026-11-07 acceptance run skipped 19/19 chunks. The dominant failure was
+# valid JSON carrying the WRONG key names (`{"entities": [...]}` instead of
+# graphiti's `{"extracted_entities": [{"name": ..., "entity_type_id": ...}]}`):
+# GRAPHITI_STRUCTURED_OUTPUT_MODE defaults to `json_schema`, which puts the
+# schema into `response_format` ONLY — and our /v1 proxy strips response_format
+# for local backends (app/models/manager.py), so the model never sees the key
+# names graphiti validates against.
+
+
+def _schema_reminder(response_model) -> str:
+    """The exact reminder graphiti appends to ``messages[-1]`` in json_object
+    mode (``openai_generic_client.py:197-204``); reused verbatim so a
+    seam-level reminder is indistinguishable from graphiti's own."""
+
+    return (
+        "\n\nRespond with a JSON object in the following format:\n\n"
+        + json.dumps(response_model.model_json_schema())
+    )
+
+
+def _append_schema_reminder(messages, response_model) -> None:
+    """Put graphiti's response schema into the prompt for the model (#22, R2).
+
+    ``response_model`` is set for every graphiti prompt (nodes, edges, node
+    dedupe, edge dedupe, summaries), whatever ``GRAPHITI_STRUCTURED_OUTPUT_MODE``
+    says, so the small model is told the key names it must emit. Idempotent:
+    graphiti itself appends the same string in json_object mode and the vendored
+    tenacity wrapper re-enters this call with the same mutated message list."""
+
+    if response_model is None or not messages:
+        return
+    reminder = _schema_reminder(response_model)
+    last = messages[-1]
+    content = last.content or ""
+    if content.endswith(reminder):
+        return
+    last.content = content + reminder
+
+
+# Positive-only alias tables. A rename happens ONLY when graphiti's real field
+# is absent, exactly one candidate alias is present, and (for entity_type_id)
+# the value resolves unambiguously against the prompt's own <ENTITY TYPES>
+# block. Anything else returns the payload unchanged, so the existing per-chunk
+# skip (M2) still fires: a visible skip beats a silently wrong graph. The target
+# names are graphiti's, read from graphiti_core/prompts — extract_nodes.py
+# (ExtractedEntities, SummarizedEntities), extract_edges.py (ExtractedEdges,
+# Edge), dedupe_nodes.py (NodeResolutions), dedupe_edges.py (EdgeDuplicate).
+_TOP_LEVEL_ALIASES = {
+    "extracted_entities": ("entities", "nodes"),
+    "edges": ("extracted_edges", "facts", "triples"),
+    "entity_resolutions": ("resolutions", "duplicates"),
+    "summaries": ("entity_summaries", "summarized_entities"),
+}
+
+_ELEMENT_ALIASES = {
+    "name": ("text", "entity_name"),
+    "entity_type_id": ("entity_type", "entity_type_name"),
+    "source_entity_name": ("source",),
+    "target_entity_name": ("target",),
+    "relation_type": ("relation", "relationship"),
+}
+
+
+def _parse_entity_type_entries(text: str) -> List[Dict[str, Any]]:
+    """The ``<ENTITY TYPES>`` block of a graphiti prompt as dicts.
+
+    node_operations renders this block with ``repr()`` (single quotes, not
+    JSON), so literal_eval is the parser that works. An absent, empty or
+    unreadable block yields ``[]`` — which makes an entity-type name
+    unresolvable rather than guessable."""
+
+    import ast
+
+    start = text.find("<ENTITY TYPES>")
+    if start < 0:
+        return []
+    end = text.find("</ENTITY TYPES>", start)
+    block = text[start + len("<ENTITY TYPES>") : end if end >= 0 else None].strip()
+    if not block:
+        return []
+    try:
+        entries = ast.literal_eval(block)
+    except (SyntaxError, ValueError):
+        return []
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _entity_type_ids(messages) -> Dict[str, List[int]]:
+    """``{entity_type_name: [entity_type_id, ...]}`` from every message's block.
+
+    The id is only ever read from the prompt itself, never derived: a name that
+    maps to more than one id is ambiguous and stays unresolved."""
+
+    index: Dict[str, List[int]] = {}
+    for message in messages or []:
+        for entry in _parse_entity_type_entries(getattr(message, "content", "") or ""):
+            name = entry.get("entity_type_name")
+            type_id = entry.get("entity_type_id")
+            if not isinstance(name, str) or isinstance(type_id, bool):
+                continue
+            if not isinstance(type_id, int):
+                continue
+            ids = index.setdefault(name, [])
+            if type_id not in ids:
+                ids.append(type_id)
+    return index
+
+
+def _entity_type_id(type_name: Any, messages):
+    """Resolve an entity type NAME to graphiti's id, or ``None``."""
+
+    if not isinstance(type_name, str):
+        return None
+    candidates = _entity_type_ids(messages).get(type_name, [])
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _plan_top_level_renames(payload: Dict[str, Any], response_model):
+    """``{alias: graphiti field}`` for the top level, or ``None`` if ambiguous.
+
+    Ambiguous means the real key and an alias both appear, two aliases for the
+    same field appear, or one alias would serve two fields — a conflicting
+    payload that is not ours to interpret."""
+
+    planned: Dict[str, str] = {}
+    for field, field_info in response_model.model_fields.items():
+        aliases = _TOP_LEVEL_ALIASES.get(field)
+        if not aliases or not field_info.is_required():
+            continue
+        present = [alias for alias in aliases if alias in payload]
+        if not present:
+            continue
+        if field in payload or len(present) > 1 or present[0] in planned:
+            return None
+        planned[present[0]] = field
+    return planned
+
+
+def _normalize_element(item: Dict[str, Any], messages):
+    """Rename one list element's field aliases; ``None`` when ambiguous."""
+
+    renames: Dict[str, str] = {}
+    for field, aliases in _ELEMENT_ALIASES.items():
+        if field in item:
+            continue
+        present = [alias for alias in aliases if alias in item]
+        if not present:
+            continue
+        if len(present) > 1:
+            return None
+        renames[present[0]] = field
+    if not renames:
+        return item
+    normalized = dict(item)
+    for alias, field in renames.items():
+        if field != "entity_type_id":
+            normalized[field] = normalized.pop(alias)
+            continue
+        type_id = _entity_type_id(normalized[alias], messages)
+        if type_id is None:
+            # Never invent an id: leave the field absent (and the alias where
+            # it was) so pydantic fails visibly and the chunk is skipped.
+            continue
+        del normalized[alias]
+        normalized[field] = type_id
+    return normalized
+
+
+def _normalize_elements(items, messages):
+    """Element-level alias mapping for one top-level list; ``None`` if ambiguous.
+
+    Returns the list it was given when no element changed, so a conforming
+    payload stays the identical object (see ``_normalize_to_schema``)."""
+
+    normalized = []
+    for item in items:
+        if not isinstance(item, dict):
+            normalized.append(item)
+            continue
+        element = _normalize_element(item, messages)
+        if element is None:
+            return None
+        normalized.append(element)
+    if all(new is old for new, old in zip(normalized, items)):
+        return items
+    return normalized
+
+
+def _normalize_to_schema(payload, response_model, messages):
+    """Rename unambiguous key aliases so graphiti can validate (#22, R3).
+
+    The only place that can do this is our own leaf call: parsing happens
+    inside graphiti's ``_generate_response`` and validation in
+    ``node_operations`` (``ExtractedEntities(**llm_response)``), both outside
+    our reach. Returns the payload UNCHANGED — the same object — unless a
+    rename is provably safe, so today's skip path still fires for everything
+    else."""
+
+    if response_model is None or not isinstance(payload, dict):
+        return payload
+
+    planned = _plan_top_level_renames(payload, response_model)
+    if planned is None:
+        return payload
+
+    normalized: Dict[str, Any] = {}
+    changed = bool(planned)
+    for key, value in payload.items():
+        field = planned.get(key, key)
+        if not isinstance(value, list):
+            normalized[field] = value
+            continue
+        elements = _normalize_elements(value, messages)
+        if elements is None:
+            return payload
+        changed = changed or elements is not value
+        normalized[field] = elements
+    return normalized if changed else payload
+
+
 def _build_llm_client():
     from openai import AsyncOpenAI
 
@@ -379,18 +605,32 @@ def _build_llm_client():
     from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 
     class _CappedLLMClient(OpenAIGenericClient):
-        """OpenAIGenericClient that clamps every per-call ``max_tokens`` to
-        ``Config.GRAPHITI_LLM_MAX_TOKENS``.
+        """OpenAIGenericClient hardened for the local small model (#22).
 
         Graphiti's edge-extraction path passes an explicit
         ``extract_edges_max_tokens = 16384``
         (``graphiti_core/utils/maintenance/edge_operations.py``), which otherwise
         overrides the constructor cap. Guarding the leaf call closes that hole.
 
-        The leaf call also converts a deterministic truncation
-        (``json.JSONDecodeError`` from a truncated ``json_schema`` body) into the
-        terminal ``_TruncatedJSONError`` so the vendored tenacity wrapper does
-        not retry it 4x.
+        Three more behaviours live here, all forced by what the acceptance run
+        actually recorded (19/19 chunks skipped):
+
+        * the schema reminder is appended to ``messages[-1]``, because our /v1
+          proxy strips ``response_format`` so ``json_schema`` mode never shows
+          the model the key names graphiti validates;
+        * the clamped ``max_tokens``, the response model, ``finish_reason`` and
+          the first 400 chars of the raw body are logged at WARNING — the raw
+          output used to be persisted nowhere; the request is never logged;
+        * an unparseable body is classified by ``finish_reason``: only a genuine
+          truncation becomes the terminal ``_TruncatedJSONError`` so the
+          vendored tenacity wrapper does not retry it, while a generation
+          defect propagates as ``json.JSONDecodeError`` and may be retried.
+
+        The leaf call therefore copies graphiti's own request/parse sequence
+        (``openai_generic_client.py:151-171``) instead of delegating to
+        ``super()``, which returns an already-parsed dict and hides
+        ``finish_reason``. ``scratch/prove_local_graphiti.py`` (``LocalProxyLLM``)
+        is the in-repo precedent for that override.
         """
 
         async def _generate_response(
@@ -402,23 +642,79 @@ def _build_llm_client():
             *,
             model=None,
         ):
+            import openai
+
+            from graphiti_core.llm_client.errors import (
+                EmptyResponseError,
+                RateLimitError,
+            )
+            from graphiti_core.llm_client.openai_generic_client import DEFAULT_MODEL
+
             cap = Config.GRAPHITI_LLM_MAX_TOKENS
             if not max_tokens or max_tokens > cap:
                 max_tokens = cap
+            _append_schema_reminder(messages, response_model)
+            finish_reason = None
             try:
-                return await super()._generate_response(
-                    messages,
-                    response_model=response_model,
+                openai_messages = []
+                for m in messages:
+                    m.content = self._clean_input(m.content)
+                    if m.role == "user":
+                        openai_messages.append({"role": "user", "content": m.content})
+                    elif m.role == "system":
+                        openai_messages.append(
+                            {"role": "system", "content": m.content}
+                        )
+                response = await self.client.chat.completions.create(
+                    model=model or self.model or DEFAULT_MODEL,
+                    messages=openai_messages,
+                    temperature=self.temperature,
                     max_tokens=max_tokens,
-                    model_size=model_size,
-                    model=model,
+                    response_format=self._build_response_format(response_model),
                 )
+                choice = response.choices[0]
+                result = choice.message.content or ""
+                finish_reason = getattr(choice, "finish_reason", None)
+                # Bounded instrumentation: the raw model output was persisted
+                # nowhere before, which is why #22 had to be diagnosed from a
+                # pydantic error repr. %.400s caps the body; the request is
+                # deliberately not logged.
+                logger.warning(
+                    "graphiti LLM response: model=%s max_tokens=%s "
+                    "finish_reason=%s body=%.400s",
+                    getattr(response_model, "__name__", response_model),
+                    max_tokens,
+                    finish_reason,
+                    result,
+                )
+                # An empty body (refusal, length finish_reason, or a flaky
+                # endpoint) would make json.loads raise a cryptic
+                # JSONDecodeError; surface a clear error instead.
+                if not result:
+                    raise EmptyResponseError("LLM returned an empty response")
+                return _normalize_to_schema(
+                    json.loads(self._strip_code_fences(result)),
+                    response_model,
+                    messages,
+                )
+            except openai.RateLimitError as e:
+                raise RateLimitError from e
             except json.JSONDecodeError as exc:
-                # Deterministic truncation (finish=length): fail fast, do not
-                # retry; M2's _ingest_record skips the chunk once.
-                raise _TruncatedJSONError(
-                    f"truncated/unparseable JSON response (not retried): {exc}"
-                ) from exc
+                # finish_reason == "length" is the only genuine truncation, and
+                # a truncated json_schema body is deterministic — fail fast and
+                # let M2's _ingest_record skip the chunk once. An absent
+                # finish_reason leaves nothing to reason with, so be
+                # conservative. Anything else is a generation defect
+                # (unescaped quote, wrong keys, …), not a truncation: mislabelling
+                # it wastes the measurement, so let it propagate and be retried.
+                if finish_reason is None or finish_reason == "length":
+                    raise _TruncatedJSONError(
+                        f"truncated/unparseable JSON response (not retried): {exc}"
+                    ) from exc
+                raise
+            except Exception as e:
+                logger.error(f"Error in generating LLM response: {e}")
+                raise
 
     base_url = (Config.LLM_BASE_URL or "http://localhost:5001/v1").rstrip("/")
     model = Config.GRAPHITI_LLM_MODEL or Config.LLM_MODEL_NAME
@@ -431,9 +727,13 @@ def _build_llm_client():
         max_tokens=Config.GRAPHITI_LLM_MAX_TOKENS,
     )
     # Our /v1 proxy routes json_schema/json_object asks into its prompt-level
-    # strict-JSON mode (+ repair parser) for local backends, which keeps the
-    # small model on the exact response shape graphiti validates — verified
-    # with graphiti's ExtractedEntities/ExtractedEdges.
+    # strict-JSON mode (+ repair parser) for local backends, but it strips
+    # response_format entirely (app/models/manager.py) — so in the default
+    # json_schema mode the schema exists ONLY in response_format and never
+    # reaches the model, which is how #22's 19/19 skipped run happened.
+    # _CappedLLMClient therefore appends graphiti's own schema reminder to the
+    # prompt itself, which makes GRAPHITI_STRUCTURED_OUTPUT_MODE irrelevant to
+    # what the model sees.
     #
     # max_tokens must be passed to the CLIENT constructor, not only via LLMConfig:
     # LLMClient.__init__ sets self.max_tokens = config.max_tokens, but
