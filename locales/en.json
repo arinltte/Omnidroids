@@ -34,6 +34,33 @@
     "home": "Home",
     "models": "Models"
   },
+  "sessions": {
+    "title": "Sessions",
+    "newPrediction": "New prediction",
+    "loading": "Loading sessions…",
+    "polling": "live",
+    "emptyTitle": "No predictions yet — start one.",
+    "continue": "Continue",
+    "resume": "Resume",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this session? The project files are kept; you can recreate the session from the project store.",
+    "stage": {
+      "extract": "Extract",
+      "ontology": "Ontology",
+      "graph_build": "Graph build",
+      "personas": "Personas",
+      "simulate": "Simulation",
+      "report": "Report",
+      "qa": "Q&A"
+    },
+    "status": {
+      "idle": "Idle",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed",
+      "interrupted": "Interrupted"
+    }
+  },
   "home": {
     "tagline": "Concise & Universal Swarm Intelligence Engine",
     "version": "/ v0.1-Preview",
@@ -345,6 +372,7 @@
     "graphBuildComplete": "Graph build complete",
     "buildFailed": "Build failed: {error}",
     "taskNotFound": "Task not found: {id}",
+    "sessionNotFound": "Session not found: {id}",
     "graphDeleted": "Graph deleted: {id}",
     "entityNotFound": "Entity not found: {id}",
     "graphNotBuilt": "Graph not yet built. Please call /api/graph/build first.",

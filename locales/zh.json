@@ -34,6 +34,33 @@
     "home": "首页",
     "models": "模型"
   },
+  "sessions": {
+    "title": "会话",
+    "newPrediction": "新建预测",
+    "loading": "正在加载会话…",
+    "polling": "实时",
+    "emptyTitle": "还没有预测——开始第一个。",
+    "continue": "继续",
+    "resume": "恢复",
+    "delete": "删除",
+    "deleteConfirm": "删除该会话？项目文件会保留，可从项目存储重新创建会话。",
+    "stage": {
+      "extract": "抽取",
+      "ontology": "本体",
+      "graph_build": "图谱构建",
+      "personas": "人设",
+      "simulate": "模拟",
+      "report": "报告",
+      "qa": "问答"
+    },
+    "status": {
+      "idle": "空闲",
+      "running": "运行中",
+      "completed": "已完成",
+      "failed": "失败",
+      "interrupted": "已中断"
+    }
+  },
   "home": {
     "tagline": "简洁通用的群体智能引擎",
     "version": "/ v0.1-预览版",
@@ -345,6 +372,7 @@
     "graphBuildComplete": "图谱构建完成",
     "buildFailed": "构建失败: {error}",
     "taskNotFound": "任务不存在: {id}",
+    "sessionNotFound": "会话不存在: {id}",
     "graphDeleted": "图谱已删除: {id}",
     "entityNotFound": "实体不存在: {id}",
     "graphNotBuilt": "项目尚未构建图谱，请先调用 /api/graph/build",

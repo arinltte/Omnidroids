@@ -88,6 +88,12 @@ class Config:
         os.path.abspath(os.path.join(os.path.dirname(__file__), '../../frontend/dist'))
     )
     
+    # §8：会话主页面持久化（sqlite3 stdlib，WAL）。仓库根 data/ 已 git-ignored。
+    SESSIONS_DB_PATH = os.environ.get(
+        'SESSIONS_DB_PATH',
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/omnidroids.db'))
+    )
+    
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), '../uploads')

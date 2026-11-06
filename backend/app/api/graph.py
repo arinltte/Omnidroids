@@ -457,7 +457,7 @@ def build_graph():
         return _build_graph_impl()
 
 
-def _build_graph_impl():
+def _build_graph_impl(project_id_override: str = None, force_override: bool = None):
     """
     接口2：根据project_id构建图谱
     
@@ -478,6 +478,9 @@ def _build_graph_impl():
                 "message": "图谱构建任务已启动"
             }
         }
+    
+    ``project_id_override`` lets the sessions resume endpoint (§8) re-enter this
+    exact path without re-parsing the request body.
     """
     try:
         logger.info("=== 开始构建图谱 ===")
@@ -495,7 +498,7 @@ def _build_graph_impl():
         
         # 解析请求
         data = request.get_json() or {}
-        project_id = data.get('project_id')
+        project_id = project_id_override or data.get('project_id')
         logger.debug(f"请求参数: project_id={project_id}")
         
         if not project_id:
@@ -513,7 +516,7 @@ def _build_graph_impl():
             }), 404
 
         # 检查项目状态
-        force = data.get('force', False)  # 强制重新构建
+        force = force_override if force_override is not None else data.get('force', False)  # 强制重新构建
         if not isinstance(force, bool):
             return jsonify({
                 "success": False,

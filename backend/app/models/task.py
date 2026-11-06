@@ -11,6 +11,9 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 
 from ..utils.locale import t
+from ..utils.logger import get_logger
+
+logger = get_logger('mirofish.task')
 
 
 class TaskStatus(str, Enum):
@@ -105,6 +108,27 @@ class TaskManager:
         with self._task_lock:
             return self._tasks.get(task_id)
     
+    def restore_task(self, task_id: str, task_type: str, metadata: Optional[Dict] = None) -> Task:
+        """§8: rehydrate a durably-mirrored task with its original id.
+
+        Called at boot before serving so the frontend can still poll a task id it
+        persisted (e.g. a graph build the backend was restarted out of).
+        """
+        now = datetime.now()
+        with self._task_lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                task = Task(
+                    task_id=task_id,
+                    task_type=task_type,
+                    status=TaskStatus.PENDING,
+                    created_at=now,
+                    updated_at=now,
+                    metadata=metadata or {},
+                )
+                self._tasks[task_id] = task
+        return task
+    
     def update_task(
         self,
         task_id: str,
@@ -143,6 +167,25 @@ class TaskManager:
                     task.error = error
                 if progress_detail is not None:
                     task.progress_detail = progress_detail
+                self._mirror_to_sessions(task)
+    
+    def _mirror_to_sessions(self, task: "Task") -> None:
+        """§8.2: durable mirror of every task update into the sessions DB.
+
+        Never allowed to break task bookkeeping (a full/locked DB must not kill
+        an in-flight build), so every failure is swallowed after logging.
+        """
+        try:
+            from ..sessions.store import get_session_store
+            get_session_store().record_task(
+                task.task_id,
+                task_type=task.task_type,
+                status=task.status.value,
+                progress=task.progress,
+                message=task.message,
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("sessions task mirror skipped for %s", task.task_id, exc_info=True)
     
     def complete_task(self, task_id: str, result: Dict):
         """标记任务完成"""

@@ -72,6 +72,24 @@ def create_app(config_class=Config):
     except Exception as exc:  # pragma: no cover - never block app start
         logger.error("模型运行时启动失败: %s", exc)
     
+    # §8.2：启动前重放持久化任务并和解会话——重启时丢失 worker 的处理中任务
+    # 标记为 interrupted；graph_build/personas 阶段且工件不完整的会话提供 Resume
+    # （批次按 chunk 落盘，恢复从最后一个成功 chunk 继续，而不是从零开始）。
+    try:
+        from .sessions.store import get_session_store
+        _store = get_session_store()
+        _reloaded = _store.reload_inflight_tasks()
+        _reconciled = _store.reconcile_sessions()
+        if should_log_startup:
+            logger.info(
+                "会话和解完成: 重放任务=%s (其中中断=%s), 中断会话=%s",
+                len(_reloaded),
+                sum(1 for r in _reloaded if r["status"] == "interrupted"),
+                _reconciled.get("interrupted", 0),
+            )
+    except Exception as exc:  # pragma: no cover - never block app start
+        logger.error("会话和解失败: %s", exc)
+    
     # 请求日志中间件
     @app.before_request
     def log_request():
@@ -89,6 +107,7 @@ def create_app(config_class=Config):
     # 注册蓝图
     from .api import (
         graph_bp, simulation_bp, report_bp, llm_proxy_bp, llm_monitor_bp, models_bp,
+        sessions_bp,
     )
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
@@ -97,6 +116,8 @@ def create_app(config_class=Config):
     app.register_blueprint(llm_proxy_bp, url_prefix='/v1')
     app.register_blueprint(llm_monitor_bp, url_prefix='/api/llm')
     app.register_blueprint(models_bp, url_prefix='/api/models')
+    # §8：会话主页面 / 恢复（SQLite 持久化）
+    app.register_blueprint(sessions_bp, url_prefix='/api/sessions')
     
     # 健康检查
     @app.route('/health')

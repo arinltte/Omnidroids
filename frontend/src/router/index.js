@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import SessionsView from '../views/SessionsView.vue'
 import Home from '../views/Home.vue'
 import Process from '../views/MainView.vue'
 import ModelsView from '../views/ModelsView.vue'
@@ -10,8 +11,15 @@ import MonitorView from '../views/MonitorView.vue'
 
 const routes = [
   {
+    // §8.3: the main page the launcher opens — session history + resume
     path: '/',
-    name: 'Home',
+    name: 'Sessions',
+    component: SessionsView
+  },
+  {
+    // the new-prediction console (upload + simulation requirement)
+    path: '/new',
+    name: 'NewPrediction',
     component: Home
   },
   {
