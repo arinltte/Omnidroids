@@ -37,12 +37,15 @@ def ingestion_wait_timeout(default: int | None = None) -> int | None:
     Zep Cloud ingests asynchronously on a 600s cap. The local Graphiti backend
     ingests synchronously through the local model with no server-side deadline,
     so the cap is removed entirely (None) — waiting is bounded only by the
-    machine's own throughput.
+    machine's own throughput. An EXPLICIT caller timeout is always honored:
+    without it, a stuck episode poll could spin forever instead of failing so
+    the batch job can retry/skip.
     """
-
+    if default is not None:
+        return default
     if Config.is_local_graph_backend():
         return None
-    return default if default is not None else ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
+    return ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
 
 
 def normalize_zep_search_query(query: Any) -> str:
