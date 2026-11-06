@@ -30,7 +30,9 @@
     "description": "MiroFish - Social Media Opinion Simulation System"
   },
   "nav": {
-    "visitGithub": "Visit our Github page"
+    "visitGithub": "Visit our Github page",
+    "home": "Home",
+    "models": "Models"
   },
   "home": {
     "tagline": "Concise & Universal Swarm Intelligence Engine",
@@ -75,7 +77,13 @@
     "layoutGraph": "Graph",
     "layoutSplit": "Split",
     "layoutWorkbench": "Workbench",
-    "stepNames": ["Graph Build", "Env Setup", "Run Simulation", "Report Generation", "Deep Interaction"]
+    "stepNames": [
+      "Graph Build",
+      "Env Setup",
+      "Run Simulation",
+      "Report Generation",
+      "Deep Interaction"
+    ]
   },
   "step1": {
     "ontologyGeneration": "Ontology Generation",
@@ -663,5 +671,59 @@
     "llmSelectAgentFailed": "LLM agent selection failed, using default selection: {error}",
     "generateInterviewQuestionsFailed": "Failed to generate interview questions: {error}",
     "generateInterviewSummaryFailed": "Failed to generate interview summary: {error}"
+  },
+  "models": {
+    "runtime": {
+      "budget": "RAM budget",
+      "resident": "resident",
+      "backend": "runtime",
+      "idle": "idle unload",
+      "noneLoaded": "none loaded"
+    },
+    "add": {
+      "title": "Add model",
+      "placeholder": "Paste a HuggingFace repo id, e.g. org/model-name",
+      "noRole": "no role",
+      "submit": "Add",
+      "adding": "Submitting…"
+    },
+    "downloads": {
+      "title": "Downloads",
+      "cancel": "Cancel"
+    },
+    "status": {
+      "queued": "queued",
+      "running": "downloading",
+      "done": "done",
+      "error": "failed",
+      "cancelled": "cancelled"
+    },
+    "installed": {
+      "title": "Installed models",
+      "empty": "No models yet — paste a HuggingFace repo id above to start",
+      "colName": "Name",
+      "colRepo": "Repo",
+      "colBackend": "Backend",
+      "colSize": "Size",
+      "colRole": "Role",
+      "colState": "State",
+      "colActions": "Actions"
+    },
+    "state": {
+      "loaded": "loaded",
+      "unloaded": "unloaded"
+    },
+    "actions": {
+      "unload": "Unload",
+      "delete": "Delete"
+    },
+    "settings": {
+      "title": "Runtime settings",
+      "concurrency": "Co-resident models",
+      "ramBudget": "RAM budget (GB)",
+      "idle": "Idle unload (s)",
+      "save": "Save",
+      "saved": "Saved and applied"
+    }
   }
 }

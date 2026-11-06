@@ -108,6 +108,8 @@ class Config:
     MODEL_RUNTIME_BACKEND = os.environ.get('MODEL_RUNTIME_BACKEND', 'auto').strip().lower()
     # RAM budget (GB) the model manager keeps free on top of the OS (16 GB Mac → 11 GB default).
     MODEL_RAM_BUDGET_GB = float(os.environ.get('MODEL_RAM_BUDGET_GB', '11'))
+    # Max co-resident loaded models (Model Manager 'concurrency' setting default).
+    MODEL_MAX_CO_RESIDENT = int(os.environ.get('MODEL_MAX_CO_RESIDENT', '4'))
     # Idle seconds before a loaded-but-unreferenced model is hard-unloaded (safety net).
     MODEL_IDLE_UNLOAD_SECONDS = int(os.environ.get('MODEL_IDLE_UNLOAD_SECONDS', '120'))
     # Seconds to wait for an idle-unloaded model's footprint to actually drop before WARN.
@@ -126,6 +128,14 @@ class Config:
     MODELS_REGISTRY_PATH = os.environ.get(
         'MODELS_REGISTRY_PATH', os.path.join(MODELS_DIR, 'registry.json')
     )
+    # Model Manager settings (concurrency / RAM budget / idle seconds) — machine-local,
+    # git-ignored like the registry; the manager re-reads it at acquire/idle time.
+    MODEL_SETTINGS_PATH = os.environ.get(
+        'MODEL_SETTINGS_PATH', os.path.join(MODELS_DIR, 'settings.json')
+    )
+    # Confinement: every HF artifact (downloads, hub cache) lives inside the
+    # Omnidroids folder — never ~/.cache (HANDOFF §5.1; the launcher exports it too).
+    HF_CACHE_DIR = os.environ.get('HF_CACHE_DIR', os.path.join(PROJECT_ROOT, '.cache', 'hf'))
 
     @classmethod
     def default_model_backend(cls) -> str:

@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 from ..config import Config
 from ..utils.logger import get_logger
 from .runtime import GenResult, detect_backend, make_runner, _proc_rss_mb
+from .settings import get_settings
 
 logger = get_logger("omnidroids.models.manager")
 
@@ -69,6 +70,7 @@ class ModelManager:
     def __init__(self, store=None):
         from .store import ModelStore
         self.store = store or ModelStore()
+        self._settings = get_settings()  # machine-local, re-read at acquire/idle time
         self._lock = threading.RLock()
         self._loaded: Dict[str, LoadedModel] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -181,6 +183,32 @@ class ModelManager:
                 total += mb
         return total
 
+    def _loaded_count(self, exclude: Optional[str] = None) -> int:
+        return sum(1 for key, lm in self._loaded.items()
+                   if key != exclude and lm.loaded)
+
+    @staticmethod
+    def _limit_violation(*, other_loaded: int, est_mb: int,
+                         settings: Dict[str, Any],
+                         other_resident_mb: int = 0) -> Optional[str]:
+        """Budget + concurrency gate against the LIVE settings (B2, #11)."""
+        budget_mb = int(float(settings.get("ram_budget_gb", 11)) * 1024)
+        if other_resident_mb + est_mb > budget_mb:
+            return (f"RAM budget {budget_mb}MB: ~{est_mb}MB estimated + "
+                    f"{other_resident_mb}MB resident exceeds it")
+        concurrency = max(1, int(settings.get("concurrency", 4)))
+        if other_loaded >= concurrency:
+            return (f"concurrency {concurrency}: {other_loaded} model(s) already loaded — "
+                    "raise the concurrency setting or close a model first")
+        return None
+
+    def _idle_seconds_now(self) -> int:
+        """Idle timeout read live from settings (changes apply without restart)."""
+        try:
+            return max(5, int(self._settings.get()["idle_unload_seconds"]))
+        except Exception:
+            return max(5, Config.MODEL_IDLE_UNLOAD_SECONDS)
+
     def _slugify(self, s: str) -> str:
         return re.sub(r"[^A-Za-z0-9._-]+", "_", s)[:60] or "model"
 
@@ -201,26 +229,28 @@ class ModelManager:
         except Exception:
             resolved = "gguf"
 
-        # RAM-budget co-residency check (evict idle models first; refuse if impossible).
-        budget_mb = int(Config.MODEL_RAM_BUDGET_GB * 1024)
+        # RAM-budget / concurrency co-residency check against live settings
+        # (evict idle models first; refuse if impossible).
+        settings = self._settings.get()
         est_mb = self._estimate_mb(path)
         with self._lock:
             other = self._loaded_footprint_mb(exclude=key)
-        if other + est_mb > budget_mb:
+            other_count = self._loaded_count(exclude=key)
+        violation = self._limit_violation(other_loaded=other_count, est_mb=est_mb,
+                                         settings=settings, other_resident_mb=other)
+        if violation:
             # Try to release idle (refcount==0) models to make room.
-            freed = await self._evict_idle_for(exclude=key, reserve_mb=est_mb, budget_mb=budget_mb)
+            freed = await self._evict_idle_for(exclude=key, reserve_mb=est_mb,
+                                               budget_mb=int(settings["ram_budget_gb"] * 1024))
             with self._lock:
                 other = self._loaded_footprint_mb(exclude=key)
-            if other + est_mb > budget_mb and other > 0:
+                other_count = self._loaded_count(exclude=key)
+            violation = self._limit_violation(other_loaded=other_count, est_mb=est_mb,
+                                             settings=settings, other_resident_mb=other)
+            if violation:
                 raise ModelError(
-                    f"RAM budget {budget_mb}MB: {name} (~{est_mb}MB) + {other}MB resident "
-                    f"exceeds it and the resident model(s) are in an active phase. "
-                    f"Close them, or raise MODEL_RAM_BUDGET_GB."
-                )
-        if est_mb > budget_mb:
-            raise ModelError(
-                f"{name} (~{est_mb}MB) alone exceeds the RAM budget {budget_mb}MB."
-            )
+                    f"{violation} and the resident model(s) are in an active phase. "
+                    "Close them, or raise the Model Manager settings.")
 
         runner = make_runner(name, path=path, backend=resolved,
                               ollama_tag=entry.get("ollama_tag"))
@@ -417,9 +447,9 @@ class ModelManager:
 
     # -- idle safety net ---------------------------------------------------
     def _idle_monitor(self) -> None:
-        idle = max(5, Config.MODEL_IDLE_UNLOAD_SECONDS)
-        logger.info("model idle monitor armed (%ds)", idle)
+        logger.info("model idle monitor armed")
         while not self._idle_stop.wait(5.0):
+            idle = self._idle_seconds_now()  # live re-read (settings apply w/o restart)
             try:
                 now = time.time()
                 to_unload: List[LoadedModel] = []
@@ -451,6 +481,7 @@ class ModelManager:
 
     # -- status for the UI / mem_check ------------------------------------
     def status(self) -> Dict[str, Any]:
+        settings = self._settings.get()
         with self._lock:
             loaded = []
             for lm in self._loaded.values():
@@ -463,10 +494,11 @@ class ModelManager:
                 })
             return {
                 "backend_default": Config.default_model_backend(),
-                "ram_budget_mb": int(Config.MODEL_RAM_BUDGET_GB * 1024),
+                "ram_budget_mb": int(settings["ram_budget_gb"] * 1024),
+                "concurrency": int(settings["concurrency"]),
                 "resident_mb": self._loaded_footprint_mb(),
                 "process_rss_mb": _proc_rss_mb(),
-                "idle_unload_seconds": Config.MODEL_IDLE_UNLOAD_SECONDS,
+                "idle_unload_seconds": int(settings["idle_unload_seconds"]),
                 "loaded": loaded,
                 "roles": self.store.get_roles(),
             }
