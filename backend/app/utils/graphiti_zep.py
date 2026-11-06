@@ -1021,6 +1021,46 @@ def _install_signal_handlers() -> None:
 register_runtime_shutdown()
 
 
+# Interpreter/runtime shutdown signatures: the only reliable trace a dead ingest
+# loop leaves inside `add_episode`. Kuzu's ``AsyncConnection`` shuts its own
+# ``ThreadPoolExecutor`` down when a driver closes, and ``submit`` on a shut
+# executor raises exactly one message; ``call_soon_threadsafe`` on a closed loop
+# raises the other. Matched on the message text, never on the exception type: an
+# unrelated ``RuntimeError`` is a chunk failure, which M2 still skips.
+_LOOP_GONE_SIGNATURES = (
+    "cannot schedule new futures after",
+    "event loop is closed",
+)
+
+
+def _runtime_loop_gone(
+    loop: Optional[asyncio.AbstractEventLoop], exc: Optional[BaseException] = None
+) -> bool:
+    """True when the shared runtime loop can no longer run ingestion work.
+
+    Two independent signals are needed because a torn-down runtime is rarely
+    observable from the loop object alone: ``_RUNTIME.shutdown()`` closes the
+    drivers (and their executors) while the loop itself stays open and reports
+    ``is_running()``, so a failure raised inside ``add_episode`` is often the
+    only evidence the loop is gone. Pure — no I/O — so the callers stay a one-
+    line guard and this stays unit-testable.
+
+    A chunk that fails while the loop is gone was never attempted, so it must
+    stay resumable instead of being checkpointed as ``skipped`` (M2's
+    fault-isolation applies to genuine chunk failures only).
+    """
+
+    if exc is not None:
+        message = str(exc).lower()
+        if any(signature in message for signature in _LOOP_GONE_SIGNATURES):
+            return True
+    if loop is None:
+        return True
+    if loop.is_closed():
+        return True
+    return not loop.is_running()
+
+
 # ---------------------------------------------------------------------------
 # The client: zep_cloud-compatible namespace tree over local Graphiti
 # ---------------------------------------------------------------------------
@@ -1069,9 +1109,22 @@ class GraphitiZepClient:
         entity_types, edge_types, edge_type_map = self._types_for(graph_id)
         lock = self.runtime.episode_lock(graph_id)
 
+        runtime_loop = self.runtime._loop
         for item in sorted(record["items"], key=lambda entry: entry["sequence_index"]):
             if item["status"] == "succeeded":
                 continue
+            if _runtime_loop_gone(runtime_loop):
+                # The runtime loop is gone (SIGTERM shutdown): stop iterating.
+                # Remaining chunks keep whatever state they had (``pending`` on
+                # a first pass) and the batch stays non-terminal, so
+                # `_ensure_ingestion` / `batch.get` re-enter it on restart.
+                self._save_record(record)
+                logger.warning(
+                    "graphiti runtime loop is gone; leaving chunk %s %s for resume",
+                    item["sequence_index"],
+                    item["status"],
+                )
+                return
             async with lock:
                 try:
                     # NOTE: uuid=None — add_episode(uuid=...) means *update an
@@ -1095,6 +1148,17 @@ class GraphitiZepClient:
                     item["status"] = "succeeded"
                     item["error"] = None
                 except Exception as exc:
+                    if _runtime_loop_gone(runtime_loop, exc):
+                        # Same shutdown as above, caught mid-episode: the chunk
+                        # never landed, so it stays resumable and the record
+                        # keeps serving as the resume plan.
+                        self._save_record(record)
+                        logger.warning(
+                            "graphiti runtime loop is gone inside chunk %s; leaving it %s for resume",
+                            item["sequence_index"],
+                            item["status"],
+                        )
+                        return
                     # Fault isolation (M2): one bad chunk must not abort the whole
                     # batch — checkpoint it as skipped and continue with the rest.
                     item["status"] = "skipped"
