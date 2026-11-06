@@ -49,7 +49,8 @@ dependencies = [
 # macOS Apple Silicon in-process inference backend (the default MODEL_RUNTIME_BACKEND
 # on arm64 Macs). Install with: uv sync --extra mlx
 mlx = [
-    "mlx-lm>=0.32",   # MIT; pulls mlx/mlx-metal
+    "mlx-lm>=0.32",   # MIT; pulls mlx/mlx-metal (superseded by mlx-vlm in A2; kept until gates green)
+    "mlx-vlm>=0.7.11",  # MIT; the LFM/VLM MLX runtime (mlx_vlm.load/generate; text-only path in A2)
 ]
 dev = [
     "pytest>=8.0.0",
