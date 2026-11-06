@@ -55,11 +55,15 @@ corresponding source, including over a network).
   slower and hurts per-agent action validity; OFF keeps JSON valid and agent
   actions usable (`LLM_REASONING_EFFORT=none`, live-toggleable in the UI).
 
-## Quick start (Phase 0)
+## Quick start
 
 ```bash
-# 1. backend deps  (creates backend/.venv; graphiti/kuzu are declared deps)
-cd backend && uv sync && cd ..
+# 1. backend deps  (creates backend/.venv; graphiti/kuzu/psutil are declared deps)
+#    gguf/ollama runtimes work on any OS; add the mlx extra on Apple Silicon:
+cd backend
+uv sync
+uv sync --extra mlx         # macOS only: in-process MLX inference backend
+cd ..
 
 # 2. config  (no secrets; local Graphiti needs no API key)
 cp .env.example .env
@@ -68,8 +72,8 @@ cp .env.example .env
 cd frontend && npm install && npm run build && cd ..
 ```
 
-Run the backend (Phase 0 — still forwards to a local Ollama upstream; the MLX/GGUF
-runtime replaces this in a later phase):
+Run the backend (Phase 0–1 — the `/v1` endpoint routes to a local model that is
+**hard-unloaded** when the phase/task finishes; see below):
 
 ```bash
 cd backend && uv run python run.py     # serves API on http://localhost:5001
@@ -77,6 +81,31 @@ cd backend && uv run python run.py     # serves API on http://localhost:5001
 
 A unified `Omnidroids.sh` / `Omnidroids.bat` launcher (single process, opens only
 the main page, no Node dev server at runtime) arrives in a later phase.
+
+## Model runtime (Phase 1)
+
+Models are swapped behind one OpenAI-compatible `/v1` endpoint and **load on
+demand / hard-unload when the task ends** (a binding requirement). Backends:
+
+- **mlx** — macOS Apple Silicon, in-process (`mlx-lm`); unload clears the Metal
+  cache so our own RSS falls.
+- **gguf** — cross-platform incl. Windows; a `llama-server` subprocess; unload is
+  a `SIGTERM` (never `kill -9`) so the whole process, and its RAM, is released.
+- **ollama** — *legacy* compatibility only (off by default).
+
+Verify the hard-unload guarantee (HANDOFF §12.3):
+
+```bash
+cd backend
+MODEL=lfm3:latest BACKEND=ollama .venv/bin/python3 ../scratch/mem_check.py
+# -> per-phase process RSS + resident-model footprint, asserting release.
+```
+
+> **Known gap (owner decision pending):** the installed `mlx-lm` (0.32.2) does
+> not implement the `lfm3` architecture, so `LiquidAI/LFM3-1.7B-MLX-*` may not
+> load on MLX. The GGUF path likewise needs a real `*.gguf` (Ollama keeps `lfm3`
+> as opaque sharded blobs). The legacy Ollama backend runs `lfm3` today. See
+> `HANDOFF.md` §5.2/§6 for the model decision.
 
 ## Model Manager (later phase)
 

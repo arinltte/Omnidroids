@@ -39,6 +39,8 @@ class Config:
     # 并发推理上限（同一模型实例内的并行请求数）与上下文窗口
     LLM_NUM_PARALLEL = int(os.environ.get('LLM_NUM_PARALLEL', '4'))
     LLM_CONTEXT_LENGTH = int(os.environ.get('LLM_CONTEXT_LENGTH', '8192'))
+    # 单次本地 LLM 调用的超时（秒）。长 prefill 冷启动需要余量；须小于前端上限(1800s)
+    LLM_PROXY_TIMEOUT = int(os.environ.get('LLM_PROXY_TIMEOUT', '1800'))
     
     # Zep配置
     ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
@@ -100,6 +102,45 @@ class Config:
     REPORT_AGENT_MAX_TOOL_CALLS = int(os.environ.get('REPORT_AGENT_MAX_TOOL_CALLS', '5'))
     REPORT_AGENT_MAX_REFLECTION_ROUNDS = int(os.environ.get('REPORT_AGENT_MAX_REFLECTION_ROUNDS', '2'))
     REPORT_AGENT_TEMPERATURE = float(os.environ.get('REPORT_AGENT_TEMPERATURE', '0.5'))
+
+    # ===== Model runtime (Phase 1: MLX/GGUF/Ollama behind the /v1 proxy, HARD UNLOAD) =====
+    # 'auto' picks mlx on macOS, gguf elsewhere; user can force one in .env / Model Manager.
+    MODEL_RUNTIME_BACKEND = os.environ.get('MODEL_RUNTIME_BACKEND', 'auto').strip().lower()
+    # RAM budget (GB) the model manager keeps free on top of the OS (16 GB Mac → 11 GB default).
+    MODEL_RAM_BUDGET_GB = float(os.environ.get('MODEL_RAM_BUDGET_GB', '11'))
+    # Idle seconds before a loaded-but-unreferenced model is hard-unloaded (safety net).
+    MODEL_IDLE_UNLOAD_SECONDS = int(os.environ.get('MODEL_IDLE_UNLOAD_SECONDS', '120'))
+    # Seconds to wait for an idle-unloaded model's footprint to actually drop before WARN.
+    MODEL_UNLOAD_RSS_FLOOR_MB = int(os.environ.get('MODEL_UNLOAD_RSS_FLOOR_MB', '150'))
+    # llama.cpp server binary (llama-cpp-python bundles one; standalone install also works).
+    LLAMA_SERVER_BIN = os.environ.get('LLAMA_SERVER_BIN', 'llama-server')
+    # GGUF server context + threads (0 = model default). Kept modest for a 16 GB Mac.
+    MODEL_GGUF_CTX = int(os.environ.get('MODEL_GGUF_CTX', '8192'))
+    MODEL_GGUF_THREADS = int(os.environ.get('MODEL_GGUF_THREADS', '0'))
+
+    # Project root = Omnidroids/ (three levels up from this file: app/ -> backend/ -> root/).
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    # Downloaded/local model weights live ONLY inside this folder (never ~/.ollama, never global).
+    MODELS_DIR = os.environ.get('MODELS_DIR', os.path.join(PROJECT_ROOT, 'models'))
+    # Installed-model registry + role assignments (git-ignored contents except weights policy).
+    MODELS_REGISTRY_PATH = os.environ.get(
+        'MODELS_REGISTRY_PATH', os.path.join(MODELS_DIR, 'registry.json')
+    )
+
+    @classmethod
+    def default_model_backend(cls) -> str:
+        """Resolve MODEL_RUNTIME_BACKEND='auto' to a concrete backend for this OS."""
+        forced = (cls.MODEL_RUNTIME_BACKEND or 'auto').strip().lower()
+        if forced in {'mlx', 'gguf', 'ollama'}:
+            return forced
+        try:
+            import platform as _p
+            if _p.system() == 'Darwin' and _p.machine() == 'arm64':
+                return 'mlx'
+        except Exception:
+            pass
+        return 'gguf'
+
     
     @classmethod
     def validate(cls) -> list[str]:

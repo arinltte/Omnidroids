@@ -55,6 +55,22 @@ def create_app(config_class=Config):
         register_runtime_shutdown()
         if should_log_startup:
             logger.info("本地 Graphiti 图后端已启用 (Kuzu + 本地 LLM, 无 API Key)")
+
+    # 模型运行时：启动 ModelManager（事件循环 + 空闲硬卸载看门狗），并注册退出清理。
+    try:
+        from .models.manager import get_model_manager
+        _model_manager = get_model_manager()
+        _model_manager.start()
+        import atexit as _atexit
+        _atexit.register(_model_manager.shutdown)
+        if should_log_startup:
+            logger.info(
+                "模型运行时已启动 (backend=%s, RAM预算=%sGB, 空闲卸载=%ss)",
+                Config.default_model_backend(), Config.MODEL_RAM_BUDGET_GB,
+                Config.MODEL_IDLE_UNLOAD_SECONDS,
+            )
+    except Exception as exc:  # pragma: no cover - never block app start
+        logger.error("模型运行时启动失败: %s", exc)
     
     # 请求日志中间件
     @app.before_request
@@ -71,13 +87,16 @@ def create_app(config_class=Config):
         return response
     
     # 注册蓝图
-    from .api import graph_bp, simulation_bp, report_bp, llm_proxy_bp, llm_monitor_bp
+    from .api import (
+        graph_bp, simulation_bp, report_bp, llm_proxy_bp, llm_monitor_bp, models_bp,
+    )
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
     app.register_blueprint(report_bp, url_prefix='/api/report')
-    # 本地 LLM：OpenAI 兼容转发端点(/v1) + 监控(/api/llm)
+    # 本地 LLM：OpenAI 兼容运行时端点(/v1) + 监控(/api/llm) + 模型管理(/api/models)
     app.register_blueprint(llm_proxy_bp, url_prefix='/v1')
     app.register_blueprint(llm_monitor_bp, url_prefix='/api/llm')
+    app.register_blueprint(models_bp, url_prefix='/api/models')
     
     # 健康检查
     @app.route('/health')

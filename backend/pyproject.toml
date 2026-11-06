@@ -46,6 +46,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# macOS Apple Silicon in-process inference backend (the default MODEL_RUNTIME_BACKEND
+# on arm64 Macs). Install with: uv sync --extra mlx
+mlx = [
+    "mlx-lm>=0.32",   # MIT; pulls mlx/mlx-metal
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -70,4 +75,4 @@ packages = ["app"]
 # a newer API on the Kuzu path (the reference completed the 53-chunk build with
 # neo4j 5.23.0). Force the validated pin so both can co-exist under uv resolution.
 [tool.uv]
-override-dependencies = ["neo4j==5.23.0"]
+override-dependencies = ["neo4j==5.23.0", "transformers==5.22.1"]
