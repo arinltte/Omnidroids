@@ -288,8 +288,15 @@ class MLXRunner(_BaseRunner):
         self._processor = None
         try:
             import mlx.core as mx
+            # Two-pass release: the first gc.collect() frees the Python objects
+            # holding the model/processor (probe: ~340MB is only reclaimable
+            # AFTER gc, not by the cache clear alone); mx.clear_cache() then
+            # returns the Metal allocator's cache. mx.metal.clear_cache() is
+            # deprecated in mlx 0.32 — use the top-level API.
             gc.collect()
-            mx.metal.clear_cache()
+            mx.clear_cache()
+            gc.collect()
+            mx.clear_cache()
         except Exception as exc:  # pragma: no cover
             logger.debug("mlx cache clear: %s", exc)
         gc.collect()
