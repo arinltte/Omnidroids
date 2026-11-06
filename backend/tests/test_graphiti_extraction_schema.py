@@ -670,6 +670,23 @@ def _async_return(value):
     return _coro
 
 
+class _LiveLoop:
+    """A live runtime loop: what ``_runtime._loop`` is while ingesting.
+
+    ``_ingest_record`` reads the shared loop before its chunk loop to ask the
+    #22 ingest-loop predicate whether the runtime can still run ingestion
+    work, so a fake runtime that omits it reports "loop gone" and leaves every
+    chunk pending. A stub that answers like a running loop keeps these M2 tests
+    about fault isolation, which is what they assert.
+    """
+
+    def is_closed(self):
+        return False
+
+    def is_running(self):
+        return True
+
+
 def _ingest_client(outcomes):
     """A GraphitiZepClient wired to a fake runtime, no Kuzu, no event loop.
 
@@ -708,6 +725,7 @@ def _ingest_client(outcomes):
     client.runtime = SimpleNamespace(
         get_graph=_async_return(graphiti),
         episode_lock=lambda graph_id: asyncio.Lock(),
+        _loop=_LiveLoop(),
     )
     return client, record
 
