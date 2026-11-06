@@ -396,6 +396,62 @@ def _schema_reminder(response_model) -> str:
     )
 
 
+def _json_type_name(fragment) -> str:
+    """A short JSON type word for a schema fragment (``$ref``/``anyOf`` → value)."""
+
+    if not isinstance(fragment, dict):
+        return "value"
+    kind = fragment.get("type")
+    if kind == "array":
+        return "array of " + _json_type_name(fragment.get("items"))
+    return kind if isinstance(kind, str) else "value"
+
+
+def _element_requirements(response_model) -> str:
+    """The required fields of every array item, in one plain sentence (#22, R2).
+
+    ``model_json_schema()`` hides the item shape behind ``$defs`` plus a ``$ref``
+    pointer, and the local 1.7B model does not resolve that pointer: with the
+    schema reminder alone (measured, ``scratch/after_fix_node.log``) chunk 0
+    still came back as ``{"extracted_entities": [... {"name": "Mr.
+    [director?]"}]}`` — an element with no ``entity_type_id`` at all — which
+    graphiti's ``ExtractedEntity`` rejects and the chunk is skipped. No alias
+    rule can name a key the model never emitted, so the required item fields are
+    spelled out in prose instead, together with the instruction to omit an item
+    that cannot supply them (chunk 0's text ends on the dangling fragment
+    "The bureau's director, Mr.", and naming the fields is what keeps the model
+    from emitting a half-filled element at all).
+
+    Read from the schema itself rather than hand-copied, so a graphiti upgrade
+    that adds a field keeps the sentence correct. Returns ``""`` when no
+    array-of-object field exists, leaving graphiti's own reminder untouched."""
+
+    schema = response_model.model_json_schema()
+    defs = schema.get("$defs") or {}
+    parts = []
+    for field, info in (schema.get("properties") or {}).items():
+        if not isinstance(info, dict) or info.get("type") != "array":
+            continue
+        items = info.get("items") or {}
+        ref = items.get("$ref")
+        element = defs.get(str(ref).rsplit("/", 1)[-1], {}) if ref else items
+        required = (element or {}).get("required") or []
+        if not required:
+            continue
+        properties = (element or {}).get("properties") or {}
+        fields = ", ".join(
+            f"{name} ({_json_type_name(properties.get(name))})" for name in required
+        )
+        parts.append(f'every item of "{field}" must contain {fields}')
+    if not parts:
+        return ""
+    return (
+        "\n\n"
+        + "; ".join(parts)
+        + ". Omit any item that lacks one of its required fields."
+    )
+
+
 def _append_schema_reminder(messages, response_model) -> None:
     """Put graphiti's response schema into the prompt for the model (#22, R2).
 
@@ -407,12 +463,17 @@ def _append_schema_reminder(messages, response_model) -> None:
 
     if response_model is None or not messages:
         return
-    reminder = _schema_reminder(response_model)
     last = messages[-1]
     content = last.content or ""
-    if content.endswith(reminder):
+    reminder = _schema_reminder(response_model)
+    requirements = _element_requirements(response_model)
+    if content.endswith(reminder + requirements):
         return
-    last.content = content + reminder
+    if content.endswith(reminder):
+        # graphiti's own json_object path appended the schema block already
+        last.content = content + requirements
+        return
+    last.content = content + reminder + requirements
 
 
 # Positive-only alias tables. A rename happens ONLY when graphiti's real field

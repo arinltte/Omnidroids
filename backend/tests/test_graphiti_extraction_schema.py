@@ -42,7 +42,7 @@ from graphiti_core.prompts.extract_edges import ExtractedEdges
 from graphiti_core.prompts.extract_nodes import ExtractedEntities
 from graphiti_core.prompts.lib import prompt_library
 from graphiti_core.prompts.models import Message
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.config import Config
 from app.utils import graphiti_zep
@@ -52,6 +52,14 @@ from app.utils.graphiti_zep import GraphitiZepClient, _TruncatedJSONError
 # (graphiti_core/llm_client/openai_generic_client.py:197-204). The seam reuses
 # it verbatim so its reminder is indistinguishable from graphiti's own.
 _SCHEMA_REMINDER = "\n\nRespond with a JSON object in the following format:\n\n"
+
+# The sentence the seam appends AFTER graphiti's block: the item shape
+# model_json_schema() hides behind $defs/$ref, restated for the 1.7B model.
+_ITEM_REQUIREMENTS_SENTENCE = (
+    'every item of "extracted_entities" must contain name (string), '
+    'entity_type_id (integer). Omit any item that lacks one of its required '
+    'fields.'
+)
 
 _TERMINAL_PREFIX = "truncated/unparseable JSON response (not retried): "
 
@@ -237,11 +245,14 @@ def test_schema_reminder_appended_for_a_response_model(monkeypatch):
 
     sent = calls[0]["messages"]
     assert result == {"extracted_entities": []}
-    assert sent[-1]["content"].endswith(
-        _SCHEMA_REMINDER + json.dumps(ExtractedEntities.model_json_schema())
-    )
+    # graphiti's own block, verbatim (the R2 follow-up sentence follows it)
+    assert _SCHEMA_REMINDER + json.dumps(ExtractedEntities.model_json_schema()) in sent[
+        -1
+    ]["content"]
     assert "extracted_entities" in sent[-1]["content"]
     assert sent[0]["content"] == "You are an entity extraction specialist."
+    # the required-item sentence follows graphiti's own block (R2 follow-up)
+    assert sent[-1]["content"].endswith(_ITEM_REQUIREMENTS_SENTENCE)
 
 
 def test_schema_reminder_absent_without_a_response_model(monkeypatch):
@@ -290,6 +301,98 @@ def test_schema_reminder_is_mode_independent(monkeypatch):
     _generate(client, [Message(role="user", content="Extract entities.")], ExtractedEntities, 2048)
 
     assert _SCHEMA_REMINDER in calls[0]["messages"][-1]["content"]
+
+
+# ---------------------------------------------------------------------------
+# R2 follow-up — the reminder must be readable by the small model
+# ---------------------------------------------------------------------------
+#
+# Measured on the merged fix (scratch/after_fix_node.log, H2 --repeat 2): 11/12
+# node calls passed, but chunk 0 still failed once with
+# ``extracted_entities.5.entity_type_id Field required`` — the raw body's last
+# element was ``{"name": "Mr. [director?]"}``, no type key at all (chunk 0's
+# text ends on the dangling fragment "The bureau's director, Mr."). No alias
+# rule can name a key the model never emitted, so the fix has to be at the
+# prompt: ``model_json_schema()`` hides the per-item shape behind ``$defs``
+# plus a ``$ref`` pointer that a 1.7B model does not resolve.
+
+
+@pytest.mark.parametrize(
+    "response_model, expectation",
+    [
+        (
+            ExtractedEntities,
+            'every item of "extracted_entities" must contain name (string), '
+            'entity_type_id (integer). Omit any item that lacks one of its '
+            'required fields.',
+        ),
+        (
+            ExtractedEdges,
+            'every item of "edges" must contain source_entity_name (string), '
+            'target_entity_name (string), relation_type (string), fact (string). '
+            'Omit any item that lacks one of its required fields.',
+        ),
+        (
+            NodeResolutions,
+            'every item of "entity_resolutions" must contain id (integer), '
+            'name (string), duplicate_candidate_id (integer). Omit any item that '
+            'lacks one of its required fields.',
+        ),
+    ],
+)
+def test_schema_reminder_restates_required_item_fields_without_refs(
+    monkeypatch, response_model, expectation
+):
+    client, calls = _client('{"x": 1}', monkeypatch=monkeypatch)
+
+    _generate(client, [Message(role="user", content="Extract.")], response_model, 2048)
+
+    sent = calls[0]["messages"][-1]["content"]
+    # graphiti's own block is still present, verbatim and unaltered
+    assert _SCHEMA_REMINDER + json.dumps(response_model.model_json_schema()) in sent
+    assert sent.endswith(expectation)
+    # the added sentence is plain language, not a second $ref chain
+    assert "$ref" not in expectation
+    assert "$defs" not in expectation
+
+
+def test_element_requirements_absent_without_array_items(monkeypatch):
+    class _FlatResponse(BaseModel):
+        answer: str
+
+    client, calls = _client('{"answer": "x"}', monkeypatch=monkeypatch)
+
+    _generate(client, [Message(role="user", content="Answer.")], _FlatResponse, 2048)
+
+    # nothing to restate: graphiti's reminder is the whole tail, unchanged
+    assert calls[0]["messages"][-1]["content"].endswith(
+        _SCHEMA_REMINDER + json.dumps(_FlatResponse.model_json_schema())
+    )
+
+
+def test_element_requirements_added_when_graphiti_already_appended_its_block(
+    monkeypatch,
+):
+    # json_object mode: graphiti's own generate_response appends its verbatim
+    # block first, so the seam must add ONLY the sentence, never a second copy
+    # of the schema (the prompt grows either way).
+    client, calls = _client(
+        '{"extracted_entities": []}', mode="json_object", monkeypatch=monkeypatch
+    )
+    messages = [
+        Message(role="system", content="You are an entity extraction specialist."),
+        Message(role="user", content="Extract entities."),
+    ]
+
+    asyncio.run(client.generate_response(messages, ExtractedEntities, 2048))
+
+    sent = calls[0]["messages"][-1]["content"]
+    assert sent.count(_SCHEMA_REMINDER) == 1
+    assert sent.endswith(
+        'every item of "extracted_entities" must contain name (string), '
+        'entity_type_id (integer). Omit any item that lacks one of its required '
+        'fields.'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +593,30 @@ def test_unrecognised_element_keys_are_left_alone(monkeypatch):
     result = _generate(client, _nodes_prompt(), ExtractedEntities, 2048)
 
     assert result == payload
+
+
+def test_fragment_element_without_any_type_key_is_not_repaired(monkeypatch):
+    # The residual #22 body, observed in full on chunk 0 (a text that ends on
+    # the dangling fragment "The bureau's director, Mr."):
+    #     {"extracted_entities": [ ...5 conforming..., {"name": "Mr. [director?]"}]}
+    # There is no alias to rename and no id that may be invented, so the payload
+    # must reach graphiti's pydantic untouched and the chunk must be skipped
+    # (M2) — never silently defaulted to entity_type_id 0.
+    payload = {
+        "extracted_entities": [
+            {"name": "Dr. Ada Chen", "entity_type_id": 1, "episode_indices": [0]},
+            {"name": "Mr. [director?]"},
+        ]
+    }
+    body = json.dumps(payload)
+    client, _calls = _client(body, monkeypatch=monkeypatch)
+
+    result = _generate(client, _nodes_prompt(), ExtractedEntities, 2048)
+
+    assert result == payload
+    with pytest.raises(ValidationError) as raised:
+        ExtractedEntities(**result)
+    assert raised.value.errors()[0]["loc"] == ("extracted_entities", 1, "entity_type_id")
 
 
 @pytest.mark.parametrize(
