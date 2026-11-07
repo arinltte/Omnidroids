@@ -602,7 +602,100 @@ unaffected.
   (owner decision, spec #30): the bake-off is about the **backend**, with the same
   local small model for every candidate.
 
-## 8. Evidence logs (all git-ignored, all in the main tree)
+## 8. Decision (this ticket, #39 — 2026-11-08)
+
+The decision is **keep Graphiti** — no swap. Full record:
+`docs/adr/0001-graph-build-backend.md` (this repo's first ADR; `docs/adr/README.md`
+indexes it). Answering the owner's question — *"will changing from graphiti to
+cognee or semantica improve the speed of the graph build?"* — **no, not in the way
+that matters**: Cognee builds a usable graph 4.5× faster (229.9 s vs the
+incumbent's rejected 1 032.4 s) but moves that cost into every query (22–31 s each
+vs 0.03–0.05 s) and ingests all-or-nothing with no resume entry point; Semantica's
+5/5 answers do not use its graph at all (its graph leg returned 0 facts on all
+five queries). The incumbent's only measured defect — 6/8 chunks skipped by M3's
+truncation fail-fast — is the outgoing 1.7B small model's JSON-clamp class, and
+#45 replaces that model by construction. A backend swap is the irreversible move;
+the model swap is one ticket away and already scheduled.
+
+### 8.1 The decision table (every row cites its log)
+
+Run of record per candidate: `baseline_graphiti_1794046080` (§6),
+`cognee_1794056509` (§6b), `semantica_1794069690` (§6c) — all under
+`scratch/bakeoff/`, plus the corroborating runs cited in §6/§6b/§6c. Crash-resume
+tests: `cognee_1794055197` / `semantica_1794070896`.
+
+| Criterion | Graphiti (baseline) | Cognee | Semantica |
+|---|---|---|---|
+| **Wall time for a USABLE graph** | **no usable graph**: 1 032.4 s → 2/8 chunks, 75 % skip, the service gate rejects the batch (`RuntimeError: skipped 6/8 chunks (fraction 75% exceeds limit 30%)`) — step 1 aborts. `baseline_graphiti_1794046080.log/.json` | **229.9 s** → usable: 8/8 chunks, 105/222 graph. `cognee_1794056509.json` | **651.7 s** → usable: 8/8 chunks, 118/47 graph. `semantica_1794069690.json` |
+| Chunks ingested verbatim | 2 / 8 (indices 0, 3; §6 per-chunk table) | 8 / 8 (`no_rechunking: chunk_nodes 8, expected 8, verbatim 8`; stored text sha256-equal to the contract) | 8 / 8 (`no_rechunking: verbatim 8/8`; stored memory-item content sha256-equal) |
+| Skip rate | **75 %** — all 6 of one class: `malformed-json` = M3 `_TruncatedJSONError` after M1's 4096-token leaf clamp; batch stays terminal-succeeded, the gate then rejects it | **0 % skipped** — but no skip semantics: one bad chunk kills the whole cognify (run 1 `cognee_1794055410.log`: terminal `ValidationError`, 533.8 s, 0 entities) | **0 % skipped**, 0 terminal failures — but via a repair loop (up to 3 attempts), no fail-fast class |
+| Graph quality (and what it means) | 40 nodes / 47 edges — from only 2 chunks (§1.0/§1.1/§1.3); labels `Entity` 40, `Person` 9, `Organization` 3, `Location` 1 | 105 nodes / 222 edges — 63 `Entity` + structural nodes; 42 distinct semantic relations (`causes`, `diffusion_chain`, `has_impact_index`, …) but 1.7B junk entities (`acme`, `alice`, `58%`, section headings as entities) and 105 connected components | 118 nodes / 47 edges — but **18 of 43 distinct edge types are invented `http://example.org/…` URIs** (19 of 47 edges): honest noise in the edge-type distribution |
+| 5-query relevance (§4 verdicts) | **1 relevant / 1 partial / 3 irrelevant** — confounded: only chunks 0, 3 landed, so Q2–Q5's source chunks were never in the graph (coverage, not a retrieval bug) | **4 relevant / 1 partial** — from a graph+chunk mix (its own §6b sentence records this) | **5 / 5 relevant — but chunk recall**: the vector leg returns whole verbatim chunks; shown separately below |
+| Query latency | 0.03–0.05 s, precomputed edges | **22–31 s** each — every search runs its own LLM completion (baseline: 0.03–0.05 s; §6b records the spread and the session-analysis overhead inside it) | 0.21–0.25 s — no LLM inside retrieve; see the caveat row |
+| Retrieval-semantics caveats | Graph answers are computed at ingest; query latency is independent of any query-time model | Answers are LLM completions over retrieved context — retrieval quality partly from chunk text, not only the graph | **Graph-search leg returned 0 facts on all five queries** — `ContextGraph.query` is a whitespace-token substring match and these queries are Chinese; ranking weakly discriminative even at 8 chunks (top 0.96–0.99, next five 0.92–0.96, tail 0.66–0.68) — degrades further on the 53-chunk document |
+| JSON-with-local-LM reliability | 0 parse failures / **6 truncation fail-fasts** — loud, bounded, per-chunk (M3, not retried by design); 0 retries | no fail-fast class; litellm re-prompts with the validation error up to 3× — run 2: 13 prompts / 9 calls / 0 terminal; run 1: 29 prompts / 9 calls / **1 terminal** | no fail-fast class; own repair loop up to 3 attempts (`instructor` absent) — **7 `ProcessingError` parse failures, all recovered / 0 terminal**, both runs |
+| Crash-resume behaviour (§5) | **not measured** — gap; design evidence only: `_ensure_ingestion` re-enters a non-terminal batch; the harness has no `--resume-batch` (out of #36's scope) | measured: SIGTERM → child exits −15; run stays **non-terminal on disk** (`DATASET_PROCESSING_STARTED … end=None`); re-`cognify()` starts a new run, skips indexing, **re-extracts** — **no resume entry point**; stale-run recovery only after 3 600 s | measured: SIGTERM → child exits −15; **nothing of its own survives** except the harness's `graph.json` (20 nodes / 10 edges from the completed chunk); restart reloads the file and **the harness — not semantica — decides what is done** — **no resume entry point at all** |
+| Peak RSS (100 ms sampling) | 2 853.5 MB (self 1 103.2 + backend 1 750.4; 9 061 samples) | **2 900.6 MB — highest** (self 774.1 + backend 2 126.4; 2 005 samples) | 2 401.8 MB — lowest (self 653.9 + backend 1 748.1; 5 769 samples) |
+| Integration cost | **ships** behind `client.graph.*` / `client.batch.*` — zero | full #40-sized swap: isolated venv (3.11.15, 170 packages), litellm routing, per-run `COGNEE_ENV_FILE` (mandatory — cognee's `.env` walk otherwise re-points at a cloud key), dual stores (ladybug + lancedb), new adapter seam | full #40-sized swap: isolated venv (75 packages, torch 5.22 / transformers 5.22 stack), mandatory embedder-swap workaround (its default embedder cannot load offline), new adapter seam |
+
+### 8.2 Why the decision turns where it does
+
+The three rows that are structural to a backend (not to the outgoing model) all
+favour Graphiti, and the rows that favour a swap are all model-shaped:
+
+1. **The incumbent's only defect is the shared model failure.** 6/8 truncation
+   fail-fasts from one class — bodies past M1's 4096-token clamp — the same 1.7B
+   that killed Cognee's run 1 (terminal trailing-comma `ValidationError`) and cost
+   Semantica 7 recovered parse failures. #45 replaces this model; its bar (6/6
+   full mode, 0 skips) is measured on the decided backend's extraction path, and
+   the 9B already reached 6/6 with the dedupe split (#30).
+2. **Query-time cost.** Steps 3–5 are query-heavy; Cognee's 22–31 s per query vs
+   the incumbent's 0.03–0.05 s precomputed edges is ~400–1000×, and Semantica's
+   fast queries are vector chunk recall with a graph leg that returned 0 facts.
+3. **Failure-mode shape and resume.** The incumbent fails loud and bounded
+   (per-chunk skip + terminal record + gate rejection — the build never ships
+   silently broken); Cognee is all-or-nothing; neither candidate has a resume
+   entry point, while Graphiti's `_ensure_ingestion` re-entry is at least designed
+   for it (unmeasured — see 8.4).
+
+### 8.3 What #40 must do next
+
+#40 is "serve the decided backend behind the graph interface" and, per its own
+text, on a keep-Graphiti decision it verifies the seam is the shipped default and
+closes on that evidence: a small end-to-end ingest + search through
+`client.graph.*` / `client.batch.*`, and a grep-able guarantee that no backend SDK
+is imported outside its adapter. **No swap wiring, no backend-tree deletion** —
+`Prediction/cognee` and `Prediction/semantica` stay on disk as the re-runnable
+comparison set (HANDOFF §4's delete rule is for owner cancellation of the
+bake-off, which this is not). The winning-backend sequence then runs to its end:
+#45 picks the `small` model on this backend's extraction path, and the dedupe
+prompt split (`fix/22-hybrid-dedupe-statement`) resolves with this decision —
+Graphiti wins, so it lives.
+
+### 8.4 Folded-in: the §7 gap list, status after this decision
+
+| #36 gap (§7) | Status after #39 |
+|---|---|
+| **Crash-resume** — unmeasured for Graphiti; candidates owed a measurement | **Per candidate:** Graphiti — still unmeasured, design evidence only (`_ensure_ingestion` re-entry; harness lacks `--resume-batch`); a Graphiti re-measurement needs that harness entry point, which is #40-or-later scope, not a decision blocker. Cognee — measured (§6b): non-terminal on disk, no resume entry, re-cognify redoes. Semantica — measured (§6c): nothing of its own survives; only the caller's `graph.json` did |
+| **End-to-end step-1 success** | Open, and assigned: it is a *model* gap now. With `LFM3-1.7B-MLX-4bit` the 75 % skip + gate rejection stands (`baseline_graphiti_1794046080.json`); #45 owns it (bar 6/6, 0 skips) |
+| **Determinism** | Unchanged: `temperature=0.0` is dropped by the MLX runner, so every number in §6/§6b/§6c is a sample — the strongest reason a swap would have needed the model settled first |
+| **Small-model decision** | Explicitly out of scope here (#36, #30): this doc decided the backend with the incumbent small model as the measured LLM; #45 decides the model on the decided backend |
+
+### 8.5 Sensitivity — what a BETTER small model at #45 changes
+
+Every reliability row above is a function of the outgoing 1.7B, and a different
+4-bit candidate changes all of them. With a model whose JSON fits the clamp:
+Graphiti's skip rate has a measured path to 0 (the 9B reached 6/6 full mode with
+the dedupe split — #30); its coverage-driven 1/5 relevance rises as more chunks
+land; Cognee's 1.7B junk entities and Semantica's invented-URI edges fall too,
+and Cognee's all-or-nothing terminal-failure exposure shrinks. What does **not**
+change with the model: Cognee's 22–31 s per-query completion cost, Semantica's
+0-fact graph leg on substring-matched Chinese queries, both candidates' absent
+resume entry points, and both swaps' integration cost. That split is the decision:
+the model-shaped rows are already scheduled to change at #45, the structural rows
+are not — so the incumbent keeps the seat and #40 verifies the seam.
+
+## 9. Evidence logs (all git-ignored, all in the main tree)
 
 | Artefact | Path |
 |---|---|
@@ -649,7 +742,7 @@ Run 2's backend log records one model resident and a clean hard unload:
     [18:08:10] INFO: MODEL LOADED LFM3-1.7B-MLX-4bit [mlx] rss_before=180MB rss_after=1696MB est=1087MB
     [18:25:14] INFO: MODEL UNLOADED LFM3-1.7B-MLX-4bit rss_before=1714MB rss_after=1714MB
 
-## 9. Reproduce
+## 10. Reproduce
 
 ```bash
 # Graphiti baseline (Ollama must be stopped; assert :11434 closed first)
