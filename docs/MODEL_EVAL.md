@@ -294,6 +294,93 @@ So "an extraction-dedicated bigger model" is off the table for this issue — th
 edge path stays a small-model prompt problem, and the remaining options are the
 shape clause and grammar-constrained decoding.
 
+### §7c — The plain-English schema statement, the 9B on graphiti's prompts, and the dedupe split (#24, #22, #29)
+
+All runs below: the six real chunks of batch `local_a84bf4218fe24790`
+(sha256-verified), a **fresh graph id per run**, Ollama stopped and asserted down by
+the harness, `json_schema` mode, `GRAPHITI_LLM_MAX_TOKENS=4096`,
+`GRAPHITI_MAX_COROUTINES=2`, arctic-embed-s 384-d. Logs in `scratch/`.
+
+**Model-selection trap (it cost one run):** `app/config.py` calls
+`load_dotenv(.env, override=True)`, so a shell `LLM_MODEL_NAME=…` is clobbered by
+`.env` before `Config` reads it, and the harness's `[ok] backend up … model=` line
+reports that config value rather than what served. Select with
+`GRAPHITI_LLM_MODEL=<name>` (absent from `.env`, so it survives) and confirm by RSS
+and output style.
+
+#### 1. The plain-English schema statement everywhere (#24) — measured and REJECTED
+
+Branch `fix/24-plain-english-schema` (pushed): `_schema_reminder` sends a
+schema-derived statement instead of `json.dumps(model_json_schema())` whenever the
+dump carries `$defs`/`$ref` or exceeds 512 chars.
+
+| model | mode | ok | skip | classes | llm s | mean |
+|---|---|---|---|---|---|---|
+| LFM3-1.7B sample A | node ×2 | 10/12 | 2 | malformed-json 2 | 946.2 | 78.8 s |
+| LFM3-1.7B sample B | node ×2 | 12/12 | 0 | — | 501.9 | 41.8 s |
+| LFM3-1.7B | full ×1 | 3/6 | 3 | malformed-json 3 | 1316.2 | 219.4 s |
+| granite-4.2-3b | node ×2 | **0/12** | 12 | other 12 (bare array) | 91.7 | 7.6 s |
+| granite-4.2-3b | full ×1 | **0/6** | 6 | other 6 (bare array) | 41.9 | 7.0 s |
+
+Baseline (raw dump, §7b): 1.7B node 12/12 @ 7.9 s mean, full 3/6 @ 72.4 s; 3B node
+11/12 @ 9.0 s, full 1/6 @ 47.0 s. It DID fix what it aimed at — `NodeResolutions`
+echoed `{"$defs": …}` on 0 of 4 calls (was 3 of 5), `ExtractedEdges` compacted on
+3 of 4 comparable chunks — but granite-4.2-3b then lost the wrapper entirely
+(`[{"name": …}]` → `ExtractedEntities(**payload)` raises `TypeError`), the 1.7B
+pretty-printed with `// Wait, …` comments and a trailing `Wait, need to re-`
+again, and wall time went 10×. Closed as *measured, not fixed* per #24's protocol.
+
+The learning: **the dump is the extraction prompts' only compact one-line exemplar,
+and prose is what stops a model from handing the schema back.**
+
+#### 2. The 9B on graphiti's own prompts — the missing number (#25)
+
+`GRAPHITI_LLM_MODEL=Ornith-1.5-9B-MLX-6bit`:
+
+| run | log | result |
+|---|---|---|
+| node ×2 | `check24_9b_node_a.log` | **12/12, 0 skips**, mean 23.6 s, deterministic (identical node counts on both repeats), every body `finish_reason=stop` and carrying `episode_indices` — it follows the schema it is shown |
+| full ×1 | `check24_9b_full_a.log` | 1/6 — **17 calls** answered 502 `There is no Stream(gpu, N) in current thread` (see §3) |
+| full ×1, after the #29 fix | `check24_9b_full_b.log` | 1/6 — the ONLY failure is `EdgeDuplicate` answering `{"properties": {"duplicate_facts": []}}`, 5 of 5 calls. Every extraction prompt (nodes AND edges) was correct, including the `ExtractedEdges` the 1.7B cannot fit inside M1's clamp |
+
+So the 9B clears the extraction prompt and the edge-extraction prompt that block
+#22, and echoes only on the edge-dedupe prompt — the same class the 1.7B shows on
+its node-dedupe prompt. Wall time ~128 s/chunk (≈95 min for §12's ~44 chunks —
+about 2× the 1.7B, which is a real cost against the ≤~60 min bar).
+
+#### 3. #29 — MLX calls now run on the model's own thread
+
+`MLXRunner` used to load on a temporary one-worker pool that it then discarded and
+generate through `asyncio.to_thread` (an arbitrary thread per call). MLX GPU
+streams are thread local and `mlx_vlm.generate` mutates shared model state, so
+concurrent graphiti calls (`GRAPHITI_MAX_COROUTINES=2`) crossed threads. Measured:
+the 9B full-mode run above failed 4 of 6 chunks on 17 such 502s, while every
+sequential run of the same model and every 1.7B/3B full-mode run measured to date
+had zero. Fix: one single-worker executor per loaded model carries `load`,
+`generate` and the unload cache-release on the same thread
+(`tests/test_model_runtime_threading.py` pins it). Evidence: `check24_9b_full_b.log`
+has **0** occurrences of the error; the 9B run then fails only on the echo class.
+Blast radius before the fix: any `big`-model use under concurrency, i.e. steps 4-5.
+
+#### 4. The dedupe split — what ships on `fix/22-hybrid-dedupe-statement`
+
+`_ECHO_PRONE_RESPONSE_MODELS = {NodeResolutions, EdgeDuplicate}` get the
+plain-English statement; every other graphiti response model (extraction and
+summaries) keeps graphiti's verbatim dump. It is a measured, per-model decision
+pinned to logged runs, not a schema-derived heuristic — no size boundary separates
+the classes (NodeResolutions' 873-char dump sits between SummarizedEntities' 614
+and ExtractedEntities' 896).
+
+| model | run | result | the echo class |
+|---|---|---|---|
+| LFM3-1.7B | full ×1 (`check24_1p7b_full_c.log`) | 3/6 (baseline, unchanged) | 0 of 20 dedupe calls echoed; all 3 failures are `ExtractedEdges` at the 4096 clamp (char 13719 / 11157 / 14074) |
+| Ornith-1.5-9B | full ×1 (`check24_9b_full_c.log`) | **6/6, 0 skips — first clean full-mode run measured** | 0 echoes |
+
+The 1.7B stays at its measured 3/6 with the dedupe-echo class removed; the 9B is
+6/6. Moving Graph Build (step 1) to the `big` role is the owner's call (#22
+comment 2); with that routing the edge path is clear, without it #22's blocker is
+the 1.7B's edge-extraction verbosity, which no prompt variant has fixed.
+
 ## 8. Reproduce
 
 ```bash
