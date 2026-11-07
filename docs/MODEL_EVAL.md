@@ -170,6 +170,39 @@ on these triples — revisit only for a multilingual-heavy workload as a separat
 `embed`-role registration. **768→384-d invalidates any pre-existing 768-d
 graph embeddings** (none exist on this machine; documented in the B5 commit).
 
+### 5.1 Fresh re-confirmation of the chosen embedder — issue #35 (2026-11-07)
+
+One measured run, offline from the shared cache, no code change
+(`scratch/embedder_probe_35.py`, log `scratch/embedder_probe_35.log`). The runtime
+loads the embedder through `backend/app/utils/graphiti_zep.py:920`
+(`_LocalSentenceTransformerEmbedder.__init__` → `SentenceTransformer(model_name)`,
+built by `_build_embedder()` at `backend/app/utils/graphiti_zep.py:942` from
+`Config.GRAPHITI_EMBEDDING_MODEL` / `GRAPHITI_EMBEDDING_DIM` /
+`GRAPHITI_EMBEDDING_QUERY_PROMPT`, `backend/app/config.py:83-90`), i.e. the same
+in-process path Graph Build uses; the app's own `.env` keeps the old nomic
+768-d lines commented out (`nomic-embed-text:v1.5` / 768), so the 384-d arctic
+default is what resolves.
+
+| metric | fresh run (#35) | §5 bake-off | note |
+|---|---|---|---|
+| embedding dim | **384** (asserted) | 384 | unchanged |
+| params | 33.2 M | 33.2 M | unchanged |
+| single encode (median of 5) | **9.9 ms** plain / **9.8 ms** query-prompted | 12.7 ms | ~25% faster; both prompt sides run |
+| throughput (50 docs, batch 16, median of 3) | **836.2 docs/s** (best 845.3) | 402.1 docs/s (48 docs) | corpus differs, not directly comparable |
+| RSS Δ | +24 MB at load, **+117 MB** after load+encode | 8 MB | measured on the §5 psutil method |
+
+Offline proof: `HF_HOME=<repo>/.cache/hf` (the launcher's convention) with
+`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `HF_DATASETS_OFFLINE=1`; the model
+resolved from the 523.3 MB cache snapshot under that `HF_HOME`, and the probe
+hard-blocks every non-loopback TCP connect and DNS lookup (airplane-mode guard) —
+**0 network attempts**, load 0.41 s warm / 3.31 s cold through the app's own
+`_build_embedder()`. Throughput used a fixed deterministic corpus of exactly **50
+short sentences / 3594 chars**, so the docs/s figure is not comparable to the
+bake-off's 48 longer docs; the single-encode latency and the 384-d/prompt wiring
+are the apples-to-apples confirmation that **`Snowflake/snowflake-arctic-embed-s`
+is the embedded model end to end**, with the query prompt applied on the query
+side and plain text on the doc side exactly as production encodes.
+
 ## 6. Local end-to-end smoke (`scratch/prove_local_graphiti.py`)
 
 Real backend on a free port, ingest+search through our `/v1` proxy with the
