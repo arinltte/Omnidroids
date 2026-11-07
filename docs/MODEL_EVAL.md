@@ -912,6 +912,64 @@ chunk in it**. The 3-vs-1 skip delta is generation variance, not a new class: te
 chunks' `ExtractedEdges` bodies run past the clamp is not perfectly reproducible run to
 run — the point is the class mix, and it is unchanged.
 
+#### 11. The 8-bit wave (issue #46) — four 8-bit probes, measured one at a time
+
+All four 4-bit candidates failed the bar (#45, §7c item 9), so the conditional #46
+wave fires. Each 8-bit probe is measured **in isolation** — one model resident at a
+time — because 8-bit weights (3-6 GB) cannot co-reside with the 9B; in this harness
+the only model ever loaded is `GRAPHITI_LLM_MODEL`'s, so nothing else is ever started
+(Ollama asserted closed before AND after by the harness; no stray `run.py` is allowed
+to launch). Branch `model/46-8bit-wave` (off `phase6-integration` @ `d349022`).
+Every probe is a **docs-only** commit after it lands, so a mid-wave interruption loses
+no measurement. **`roles` are untouched for every probe** — `small` stays
+`LFM3-1.7B-MLX-4bit`, `big` stays `Ornith-1.5-9B-MLX-6bit`; even a probe that clears
+the bar records the result and hands the role change back to the owner (the 8-bit
+co-residence arithmetic belongs in the decision, not here).
+
+Config in force identical to every §7c run: `json_schema` structured output,
+`GRAPHITI_LLM_MAX_TOKENS=4096` (M1 untouched), `GRAPHITI_LLM_MAX_COROUTINES=2`,
+arctic-embed-s 384-d; a **fresh graph id per run**; `GRAPHITI_LLM_MODEL=<probe>`
+(survives `load_dotenv`). *LLM calls/chunk* is the harness's per-chunk `calls=` counter;
+peak RSS is the `scratch/rss_sampler.py` `.rss` max beside `scratch/check46_run.sh`.
+
+##### 11.1 Qwen3.5-4B-MLX-8bit (probe 1) — **OUT, deterministic 0/12 & 0/6**
+
+Weights `mlx-community/Qwen3.5-4B-MLX-8bit` downloaded once, from `backend/`, to
+`models/Qwen3.5-4B-MLX-8bit` (`HF_HOME=<repo>/.cache/hf`, nothing new in
+`~/.cache/huggingface`; log `scratch/check46_download_qwen4b8.log`) —
+**5,163,528,300 B / 4.81 GB** (weights-only, excl `.cache`), 12 files, ~149 s, exit 0;
+`model.safetensors` alone **5,136,696,107 B (4.78 GB)** — genuinely 8-bit, ~1.7× the
+4-bit's 3.03 GB (item 5). `mlx_vlm.load(path)` through the app's `MLXRunner`, offline
+(log `scratch/check46_loadcheck_qwen4b8.log`): `config.model_type=qwen3_5`,
+quantization **bits=8 / group_size=64**, resident rss 1711 MB at load, unload OK.
+Registered in the git-ignored `models/registry.json` (`models` only; `roles` unchanged).
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check46_qwen4b8_node.log` | `check46_qwen4b8_1794094930` | **0/12** | 12 | wrong-keys 12 | 256.5 | 21.4 s | 1.0 | 180→2333 MB | 3693 MB |
+| full ×1 | `check46_qwen4b8_full.log` | `check46_qwen4b8_1794095210` | **0/6** | 6 | wrong-keys 6 | 132.3 | 22.1 s | 1.0 | 180→1665 MB | 2409 MB |
+
+**Failure class — wrong-keys, the same `$defs` schema echo as the 4-bit (item 5), and
+it is deterministic.** Every call returns `finish_reason=stop` with the inlined JSON
+schema verbatim (`{"$defs": {"ExtractedEntity": {"properties": {"name": …}}}, …}`), so
+`ExtractedEntities(**payload)` raises `extracted_entities Field required` — keys
+`['$defs','properties','required','title']` — on `extract_nodes`, the first call in
+`graphiti.add_episode`, which is why full mode makes **exactly one** LLM call per chunk
+(1.0). It never reaches the `ExtractedEdges` path. The per-chunk wall times are the
+same in the node and full runs (29.7 / 23.9 / 19.5 / 20.9 / 17.5 / 20.9 s), so the
+failure reproduces call-for-call. **Not M1's 4096 clamp** (no `finish_reason=length`,
+no `_TruncatedJSONError`).
+
+**Verdict — FAIL, does not reach the bar, and 8-bit did not help.** Full mode **0/6**
+against the 6/6-0-skip bar — the same result as the 4-bit Qwen3.5-4B (item 5: 0/12 node,
+0/6 full, the identical `$defs` echo). Class-for-class it is the *same failure one
+quant up*: the echo is a prompt/template interaction, not a capacity or quantization
+shortfall, so the 8-bit retrain buys nothing. It is measurably **worse on the
+speed/memory axes**: node mean 21.4 s vs the 4-bit's 14.0 s and full mean 22.1 s vs
+14.3 s (~1.5× slower per call), sampler peak up to 3693 MB vs 3806 MB (mmap pages,
+scaling with generation volume — the full run peaked 2409 MB). **Probe 1 is OUT for the
+wave; `small` role unchanged.**
+
 ## 8. Reproduce
 
 ```bash
