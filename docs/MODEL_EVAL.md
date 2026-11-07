@@ -570,6 +570,82 @@ between runs, and its own repeats disagree. It cannot be handed the `small` role
 that a 0-node/0-edge chunk would pass. **Candidate 2 is OUT for #45; `small` role
 unchanged, and the gap is recorded rather than downgraded silently.**
 
+#### 7. Small-model candidate 3 — gemma-4-e2b-it-4bit (issue #43) — **OUT**
+
+Branch `model/43-gemma-4-e2b-4bit` (off `phase6-integration` @ `1b72914`; the docs-only
+commit in this ticket). Weights `mlx-community/gemma-4-e2b-it-4bit` downloaded once (log
+`scratch/check43_download.log`) — **3,583,088,661 B / 3.34 GB**, 10 files, ~94 s, clean —
+to repo-root `models/gemma-4-e2b-it-4bit` via `--local-dir ../models/…` from `backend/`
+(`HF_HOME=<repo>/.cache/hf`, nothing new in `~/.cache`). The task's literal
+`--local-dir models/…` from `backend/` would have written a non-existent `backend/models/`
+tree the app cannot resolve (`MODELS_DIR` and every registry `path` are repo-root), so
+#43 confirmed with the owner first and used `../models/`, candidate 1/2's exact method.
+This is the one **multimodal VLM** of the wave (`Gemma4ForConditionalGeneration`,
+text+vision+audio; Gemma-3n "e2b" effective-2B with per-layer embeddings, 4-bit affine
+gs64). Loaded through the app's own runner path (`app.models.runtime.MLXRunner.load`, what
+`ModelManager` serves the seam) offline (`HF_HUB_OFFLINE=1`) in ~1 s: `config.model_type=
+gemma4`, text vocab 262 144 / hidden 1536 / 35 layers / max_pos 131 072, rss ~3.5-4.4 GB
+(model+processor+vision/audio towers), unload OK. Registered in the git-ignored
+`models/registry.json` (backend `mlx`, path `/Users/…/Omnidroids/models/gemma-4-e2b-it-4bit`,
+`size_bytes` 3 583 088 661) with **no role assigned** — `roles.small` stays
+`LFM3-1.7B-MLX-4bit`, `roles.big` stays `Ornith-1.5-9B-MLX-6bit`.
+
+Config in force identical to every §7c run: `json_schema` structured output,
+`GRAPHITI_LLM_MAX_TOKENS=4096`, `GRAPHITI_MAX_COROUTINES=2`, arctic-embed-s 384-d; a
+**fresh graph id per run**; Ollama stopped and asserted down before AND after by the
+harness; `GRAPHITI_LLM_MODEL=gemma-4-e2b-it-4bit` (survives `load_dotenv`; a shell
+`LLM_MODEL_NAME` would be clobbered by `.env`). *LLM calls/chunk* is the harness's own
+per-chunk `calls=` column (its additive counter on the `chat.completions.create` wrapper),
+and peak RSS is the `scratch/rss_sampler.py` thread `scratch/check43_run.sh` runs beside
+the harness. Every launch was from `backend/` on a fresh graph id, one model resident.
+
+Row of record:
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check43_node.log` | `check43_gemma4e2b_1794084085` | **0/12** | 12 | wrong-keys 12 | 77.4 | 6.4 s | 1.0 | 180→3960 MB | 4556 MB |
+| full ×1 | `check43_full.log` | `check43_gemma4e2b_1794084193` | **0/6** | 6 | wrong-keys 6 | 41.0 | 6.8 s | 1.0 | 180→2730 MB | 3347 MB |
+
+Reproducibility — the same full mode run again from `backend/` on a fresh graph id. It is
+byte-for-byte the same failure per chunk (chars 376/368/213/390/129/390 in both runs), so
+the failure is deterministic, not sampling noise:
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|
+| full ×1 | `check43_full_rep1.log` | `check43_gemma4e2b_1794084268` | 0/6 | 6 | wrong-keys 6 | 41.0 | 6.8 s | 1.0 | 4013 MB |
+
+**Failure class, per chunk.** All 12 node calls and both full runs fail on the
+**entity-extraction prompt** with the §7b *wrong-keys schema-echo*: the model answers
+`finish_reason=stop` by handing back the JSON schema-defs object itself
+(`{"$defs": {"ExtractedEntity": {"properties": {"name": …`}, payload keys `['$defs']`), so
+`ExtractedEntities(**payload)` raises `extracted_entities Field required` — the identical
+prompt and class candidate 1 (Qwen3.5-4B) died on. The failing response model is
+`ExtractedEntities` in every chunk of every run (deterministic); because `extract_nodes`
+is the first call inside `graphiti.add_episode`, a chunk aborts before any
+edge/dedupe/summary call, which is why full mode makes **exactly one** LLM call per chunk
+(calls/chunk 1.0 — matching candidate 1, vs the 1.7B/9B that clear extraction and make
+several). It is **not** M1's 4096 clamp (every body is `finish_reason=stop`, never `length`;
+zero `_TruncatedJSONError`s), **not** a bare-array `TypeError` (granite-4.2-3b), **not** the
+null-filled placeholder / half-echo / class-name echo candidate 2 showed, and **not** a
+parse failure — and it never reaches the `ExtractedEdges` edge path that blocks the 1.7B,
+failing one step earlier on `ExtractedEntities`.
+
+**Verdict — FAIL, does not reach the bar.** Full mode **0/6** against the 6/6-0-skip bar,
+deterministic across the row-of-record and the reproduction. It lands in the same place as
+candidate 1 — Qwen3.5-4B was also 0/12 node / 0/6 full on this same node-prompt echo — but
+gemma-4-e2b is ~2× faster per call (node mean 6.4 s vs 14.0 s, full mean 6.8 s vs 14.3 s);
+the speed buys nothing at 0/6, where results are counted and per-call latency is not. It is
+strictly worse than candidate 2 (MiniCPM5: 12/12 node, 3-5/6 full), which clears the entity
+prompt gemma-4-e2b cannot. Against the 1.7B candidate-0 baseline (node 12/12 @ 7.9 s;
+full 3/6 @ 72.4 s) it again trades correctness for speed — as fast or faster per chunk yet
+completing 0 chunks against the 1.7B's 12 nodes and 3 full. Resident RSS (~2.7-4.0 GB
+after-run, sampler peak 3.3-4.6 GB across runs) stays inside the 11 GB budget and below the
+9B's 7.30 GB, but memory is moot at 0/6. **Candidate 3 is OUT for #45; `small` role
+unchanged.** With candidates 1 and 3 at 0/6 and candidate 2 at 3-5/6, three of the four
+4-bit candidates have now measured below the bar (candidate 4, SmolLM3-3B, still pending)
+— no 4-bit candidate has reached 6/6, so the gap is recorded for #45 rather than
+downgraded silently.
+
 ## 8. Reproduce
 
 ```bash
