@@ -385,15 +385,153 @@ _NoOpReranker = _noop_reranker_class()
 # names graphiti validates against.
 
 
-def _schema_reminder(response_model) -> str:
-    """The exact reminder graphiti appends to ``messages[-1]`` in json_object
-    mode (``openai_generic_client.py:197-204``); reused verbatim so a
-    seam-level reminder is indistinguishable from graphiti's own."""
+# graphiti's own wording for its json_object-mode schema block
+# (openai_generic_client.py:197-204). Reproduced verbatim so the seam's block is
+# indistinguishable from graphiti's when the raw dump is readable, and so the
+# seam can recognise the block graphiti appends itself and not answer it twice.
+_GRAPHITI_SCHEMA_REMINDER = (
+    "\n\nRespond with a JSON object in the following format:\n\n"
+)
 
-    return (
-        "\n\nRespond with a JSON object in the following format:\n\n"
-        + json.dumps(response_model.model_json_schema())
-    )
+# The response models that answer the reminder by REPEATING it, and therefore get
+# the plain-English statement instead of graphiti's raw dump (#22/#24, measured).
+#
+# Both entries are DEDUPE prompts, and that is the rule the measurements support:
+# the answer such a prompt wants is a short list of ids or indices, and the dump
+# itself is a plausible short answer, so the model hands it back verbatim.
+#
+#   LFM3-1.7B-MLX-4bit  NodeResolutions  3 of 5 calls answered {"$defs": …}
+#                       (scratch/final_full.log); with the statement: 0 of 4
+#                       (scratch/check24_1p7b_full_a.log) — real resolution data.
+#   Ornith-1.5-9B-MLX-6bit  EdgeDuplicate  5 of 5 calls answered
+#                       {"properties": {"duplicate_facts": []}} (scratch/
+#                       check24_9b_full_b.log) while answering every EXTRACTION
+#                       prompt correctly, including ExtractedEdges compact.
+#
+# NO extraction prompt ever echoed its schema on any model measured, and the
+# extraction prompts are the ones that need the dump: it is the only compact
+# one-line JSON exemplar they get. Replacing it with prose (#24, MODEL_EVAL §7c)
+# made the 1.7B pretty-print to the 4096 clamp (10x wall time) and made
+# granite-4.2-3b drop the top-level wrapper entirely (0/12, 0/6).
+#
+# This set is behaviour-derived, not schema-derivable, so it is pinned by the
+# measured logs above and must be re-measured when the model registry or the
+# graphiti version changes (see #25).
+_ECHO_PRONE_RESPONSE_MODELS = frozenset({"NodeResolutions", "EdgeDuplicate"})
+
+
+def _schema_reminder(response_model) -> str:
+    """The schema to put in front of the model (#22, R2; dedupe split #24).
+
+    Graphiti's own reminder reuses ``json.dumps(model_json_schema())`` verbatim,
+    and that is still what goes in front of the EXTRACTION prompts: the dump is
+    their only compact one-line exemplar and no measured model ever echoed it.
+
+    The DEDUPE prompts get a schema-derived plain-English statement instead
+    (``An object with the required key "entity_resolutions", holding an array of
+    objects.``): measured on both models, they answer a raw dump with the dump
+    itself — a wrong-keys skip (M2) — because the dump is a plausible short
+    answer to a short question. Nothing is invented and nothing is dropped
+    except the indirection: every word of the statement comes from the schema
+    itself (see ``_plain_schema_statement``), and a schema with no properties at
+    all keeps graphiti's verbatim dump because there is then nothing to say."""
+
+    schema = response_model.model_json_schema()
+    statement = ""
+    if response_model.__name__ in _ECHO_PRONE_RESPONSE_MODELS:
+        statement = _plain_schema_statement(response_model, schema)
+    if not statement:
+        return _GRAPHITI_SCHEMA_REMINDER + json.dumps(schema)
+    return _GRAPHITI_SCHEMA_REMINDER + statement
+
+
+_TYPE_PHRASES = {
+    "string": "a string",
+    "integer": "an integer",
+    "number": "a number",
+    "boolean": "a boolean",
+    "object": "an object",
+    "array": "an array",
+    "null": "null",
+}
+
+_TYPE_PLURALS = {
+    "string": "strings",
+    "integer": "integers",
+    "number": "numbers",
+    "boolean": "booleans",
+    "object": "objects",
+    "array": "arrays",
+}
+
+
+def _join_words(words) -> str:
+    """``["a", "b", "c"]`` as ``"a, b and c"``."""
+
+    words = list(words)
+    if len(words) <= 1:
+        return "".join(words)
+    if len(words) == 2:
+        return f"{words[0]} and {words[1]}"
+    return ", ".join(words[:-1]) + f" and {words[-1]}"
+
+
+def _plural_type_phrase(fragment) -> str:
+    """The item type of an array in plain English (``"integers"``)."""
+
+    kind = fragment.get("type") if isinstance(fragment, dict) else None
+    if not isinstance(kind, str):
+        return "values"
+    return _TYPE_PLURALS.get(kind, "values")
+
+
+def _value_phrase(info, item_fragment) -> str:
+    """One property's value in plain English, read from the schema (#22)."""
+
+    if not isinstance(info, dict):
+        return "a value"
+    kind = info.get("type")
+    if kind == "array":
+        if isinstance(item_fragment, dict) and item_fragment.get("properties"):
+            return "an array of objects"
+        return "an array of " + _plural_type_phrase(item_fragment)
+    if isinstance(kind, str) and kind in _TYPE_PHRASES:
+        return _TYPE_PHRASES[kind]
+    return "a value"
+
+
+def _plain_schema_statement(response_model, schema) -> str:
+    """The top level of graphiti's schema in one prose sentence (#22).
+
+    The keys are the schema's own ``properties``, each with its own JSON type,
+    and the required set is the schema's own ``required`` — so a graphiti
+    upgrade that adds a key keeps the sentence correct, exactly as
+    ``_element_requirements`` does for the item fields. The required FIELDS of
+    every array item are deliberately not repeated here: the sentence that
+    follows names them. The optional item fields (``valid_at``,
+    ``invalid_at``, ``episode_indices``) are not named either, because
+    ``_response_shape_instructions`` already says to leave the timestamps null.
+
+    Returns ``""`` for a schema with no properties, which leaves
+    ``_schema_reminder`` on the verbatim dump (there is then nothing to say)."""
+
+    properties, items = _schema_parts(response_model)
+    if not properties:
+        return ""
+    required = set(schema.get("required") or [])
+    phrases = [
+        f'"{field}", holding {_value_phrase(info, items.get(field))}'
+        for field, info in properties.items()
+    ]
+    noun = "key" if len(phrases) == 1 else "keys"
+    statement = f"An object with the {noun} {_join_words(phrases)}."
+    if not required:
+        return statement
+    if len(required) == len(properties):
+        return f"An object with the required {noun} {_join_words(phrases)}."
+    names = _join_words(f'"{name}"' for name in properties if name in required)
+    verb = "is" if len(required) == 1 else "are"
+    return f"{statement} The required {noun} {verb} {names}."
 
 
 def _schema_parts(response_model):
@@ -557,8 +695,11 @@ def _append_schema_reminder(messages, response_model) -> None:
     )
     if content.endswith(tail):
         return
-    if content.endswith(reminder):
-        # graphiti's own json_object path appended the schema block already
+    graphitis_own_block = (
+        _GRAPHITI_SCHEMA_REMINDER + json.dumps(response_model.model_json_schema())
+    )
+    if content.endswith(graphitis_own_block):
+        # graphiti's own json_object path appended its schema block already
         last.content = content + tail
         return
     last.content = content + reminder + tail
