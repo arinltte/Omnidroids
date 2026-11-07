@@ -26,6 +26,19 @@ The quant *fallbacks* (LFM3-1.7B-MLX-8bit, Ornith-1.5-9B-MLX-4bit) were deleted
 on 2026-11-07 to reclaim ~6.4 GB — both were measured (tables below), neither is
 assigned a role. Re-download with the Model Manager if a fallback is needed.
 
+**`small` role — decision (#45, 2026-11-07): unchanged, and an OPEN item, not a
+downgrade.** No 4-bit candidate cleared the full-mode bar (6/6, 0 skips): Qwen3.5-4B
+0/6, MiniCPM5-2B 3-5/6, gemma-4-e2b 0/6, SmolLM3-3B 2/6, with granite-4.2-3b already
+OUT before the wave. The `small` role therefore **stays `LFM3-1.7B-MLX-4bit`** because
+the incumbent's own full-mode rate is **3/6** — the same gate — so leaving the role put
+records the fact that *no* 4-bit has been found that clears 6/6 with 0 skips, rather
+than silently promoting a model that fails the bar (or demoting the one that is still
+the best 4-bit on the node path). The 1.7B's blocker is `ExtractedEdges` verbosity past
+M1's 4096-token clamp, a class none of the four candidates shares. The 8-bit probes are
+the conditional follow-up (#46, in isolation — 8-bit cannot co-reside with the 9B).
+Full comparison table, failure classes and the weights-retention decision: **§7c
+item 9**.
+
 ### 1b. Step → model assignment (owner decision, issue #22)
 
 **Source:** the owner's decision on issue #22 (quoted in the commit that landed it,
@@ -642,9 +655,10 @@ completing 0 chunks against the 1.7B's 12 nodes and 3 full. Resident RSS (~2.7-4
 after-run, sampler peak 3.3-4.6 GB across runs) stays inside the 11 GB budget and below the
 9B's 7.30 GB, but memory is moot at 0/6. **Candidate 3 is OUT for #45; `small` role
 unchanged.** With candidates 1 and 3 at 0/6 and candidate 2 at 3-5/6, three of the four
-4-bit candidates have now measured below the bar (candidate 4, SmolLM3-3B, still pending)
-— no 4-bit candidate has reached 6/6, so the gap is recorded for #45 rather than
-downgraded silently.
+4-bit candidates have now measured below the bar (candidate 4, SmolLM3-3B — since
+measured at 2/6 and OUT, item 8 below; all four are now below the bar, decision in
+item 9) — no 4-bit candidate has reached 6/6, so the gap is recorded for #45 rather
+than downgraded silently.
 
 #### 8. Small-model candidate 4 — SmolLM3-3B-4bit (issue #44) — **OUT**
 
@@ -755,6 +769,88 @@ bar.
 downgraded silently.** All four 4-bit candidates have now measured below the bar
 (0/6, 3-5/6, 0/6, 2/6), so per spec #30 the 8-bit probes are the conditional follow-up
 (#46) rather than a silent downgrade to a model that fails the gate.
+
+#### 9. The small-role decision (#45) — `small` stays `LFM3-1.7B-MLX-4bit`; the gap is an OPEN item
+
+Docs-only, branch `model/45-small-role-decision` (off `phase6-integration` @ `177ee3d`;
+no model run, no download). All four 4-bit candidates (#41-#44) measured **below** the
+full-mode bar, so per the #45 ticket rule and spec #30 the `small` role does not move.
+`roles.small` in the git-ignored `models/registry.json` stays `LFM3-1.7B-MLX-4bit`
+(confirmed, not edited here); `roles.big` stays `Ornith-1.5-9B-MLX-6bit`.
+
+**The bar (spec #30, §7c):** full mode **6/6 with 0 skips** on the six sha256-verified
+chunks — the gate the 9B clears (`check24_9b_full_c.log`, §7c item 4) and the 1.7B does
+not. **Every cell below cites its log**; the four candidate rows carry the row of record
+plus a reproduction, `calls/chunk` is the harness's per-chunk `calls=` counter, and peak
+is the `scratch/rss_sampler.py` `.rss` max.
+
+| model (issue) | node ok/12 — log | full ok/6, row of record — log | full reproductions — log | mean s/call — log | calls/chunk | peak RSS — `.rss` | failure class (the prompt that skips the chunk) |
+|---|---|---|---|---|---|---|---|
+| **LFM3-1.7B-MLX-4bit** — candidate 0, current `small` (ref.) | 12/12 @ 7.9 s — `final_node.log` (§7b)* | **3/6**, 3 skips — `check24_1p7b_full_c.log` | 3/6 on the dedupe split (0/20 dedupe echoes); `final_full.log` (§7b) 72.4 s mean, 5 chunks pre-SIGBUS* | 7.9 node / 72.4 full (§7b) or 142.2 full (`_c.log`) | n/a (pre-#41 harness) | 1713 MB backend (`_c.log` `[sum]`) | malformed-json — `ExtractedEdges` verbosity at the 4096 clamp (chars 13719/11157/14074). **The one class no candidate shares.** |
+| Qwen3.5-4B-MLX-4bit (#41) | **0/12** @ 14.0 s — `check41_node.log` | **0/6** @ 14.3 s — `check41_full.log` | 0/12 again on the 2nd node run (`gid …329`), deterministic — §7c item 5 | 14.0 / 14.3 | 1.0 / 1.0 | 3806 / 3777 MB | wrong-keys — `ExtractedEntities` `$defs` schema echo on `extract_nodes` (first call). |
+| MiniCPM5-2B-mlx-4Bit (#42) | **12/12** @ 4.0 s — `check42_node.log` | **3/6** @ 10.9 s — `check42_full.log` | 4/6 `check42_full_rep1.log`, 5/6 `check42_full_rep2.log` — never 6/6 | 4.0 / 10.9 | 1.0 / 2.3 | 2026 MB | other-validation 2, wrong-keys 1 — moving: null `ExtractedEdges` placeholder, `EdgeDuplicate` half-echo, `SummarizedEntities` broken JSON. **NOT the 4096 clamp.** |
+| gemma-4-e2b-it-4bit (#43) | **0/12** @ 6.4 s — `check43_node.log` | **0/6** @ 6.8 s — `check43_full.log` | 0/6 byte-identical per chunk — `check43_full_rep1.log`, deterministic | 6.4 / 6.8 | 1.0 / 1.0 | 4556 / 3347 MB | wrong-keys — `ExtractedEntities` `$defs` schema echo on `extract_nodes` (first call). |
+| SmolLM3-3B-4bit (#44) | **6/12** @ 55.4 s — `check44_node.log` | **2/6** @ 59.9 s — `check44_full.log` | 2/6 `check44_full_rep1.log` (different chunks); node repeats 2/6 & 4/6 — moving | 55.4 / 59.9 | 1.1 / 2.3 | 2412 / 2460 MB | wrong-keys 3, other-validation 1 — moving: `ExtractedEntities` echo, `SummarizedEntities` rename, `EdgeDuplicate` half-echo, M3 truncation fail-fast, off-document fabrication. |
+| granite-4.2-3b-MLX-4bit (pre-wave, OUT) | **0/12** @ 7.6 s — §7c item 1 | **0/6** @ 7.0 s — §7c item 1 | deterministic (plain-English prompt 0/12 / 0/6) | 7.6 / 7.0 | — | — | other — bare-array `TypeError` (`[{"name": …}]`). Already OUT before the wave. |
+
+*The 1.7B shipped-config node 12/12 @ 7.9 s and the §7b full 72.4 s mean are recorded
+from `final_node.log` / `final_full.log`, whose files were **worktree logs** (reaped
+with the worktree, the log-loss effect that #42/#44 document); the in-tree `check24_1p7b_full_c.log` re-measures
+full at 3/6 on the dedupe split (mean 142.2 s over all six chunks). Re-measure with the
+§8 harness for a byte-exact baseline log.
+
+**Decision.** No 4-bit candidate reached 6/6 full mode with 0 skips — the closest,
+MiniCPM5-2B, topped out at 5/6 across three runs. Per spec #30 (*the fastest candidate
+that reaches the bar*; *if none reaches it, keep `LFM3-1.7B-MLX-4bit` and record the
+gap*) and the #45 rule, **`small` stays `LFM3-1.7B-MLX-4bit`.** This is a **recorded
+open item, not a silent downgrade**: the incumbent's own full-mode rate is **3/6**
+(the same gate), so leaving the role put is neither promotion nor demotion — it states
+that *no measured 4-bit clears 6/6 with 0 skips*. The 1.7B's blocker is `ExtractedEdges`
+writing bodies past M1's 4096-token clamp, a class none of the four shares (candidates 1/3
+die one step earlier on `extract_nodes`; candidates 2/4 clear nodes and die late and
+variably on the edge/dedupe/summary prompts), so the 1.7B remains the only 4-bit that
+reliably clears the node path (12/12) and whose failures are the clamp the seam was built
+around.
+
+**Open item recorded (carried into #45).** *A 4-bit that clears 6/6 with 0 skips has not
+been found.* The ticket's conditional consumer **#46 therefore fires**: the 8-bit probes
+run next, one at a time in isolation, because 8-bit cannot co-reside with the 9B (RAM,
+below). **granite-4.2-3b is already OUT** (pre-wave, deterministic 0/12 node / 0/6 full,
+§7c item 1).
+
+**Weights-retention decision (a recommendation — nothing is deleted here, `roles`
+unchanged).** **RAM arithmetic:** the 9B holds `big` at 7298 MB (registry 7 298 159 159
+B) and production co-residence is the 9B with the 1.7B `small` — the §1b step-4 proof
+loaded the 9B with the 1.7B resident at the manager's estimate 8004 + 1711 = 9715 MB
+against the 11 264 MB budget, no violation. That pairing is the only candidate-slot
+co-residence production uses, and it holds the 1.7B, not a measured candidate, so **no
+candidate has a resident slot beside the 9B.** Under the ≥2 GB headroom rule (§4,
+HANDOFF §5.2) a model beside the 9B may use at most 11 264 − 7298 − 2048 = **1918 MB** of
+weights; the five unused candidates are 11 735 MB together, so with the 9B resident they
+are 19 033 MB — ~7.8 GB over budget — and the set can never co-reside in aggregate.
+
+| model (issue) | on-disk (registry) | beside the 9B under the ≥2 GB rule (≤1918 MB)? | full-mode | recommendation |
+|---|---|---|---|---|
+| gemma-4-e2b-it-4bit (#43) | 3583 MB (3.34 GB) | No — headroom 383 MB | 0/6 | **DELETE** |
+| Qwen3.5-4B-MLX-4bit (#41) | 3061 MB (2.85 GB) | No — headroom 905 MB | 0/6 | **DELETE** |
+| SmolLM3-3B-4bit (#44) | 1747 MB (1.63 GB) | Yes — headroom 2219 MB | 2/6 | **DELETE** (clear fail: slowest, thinnest graph, no edge over the 1.7B) |
+| granite-4.2-3b-MLX-4bit (pre-wave) | 1918 MB (1.78 GB) | Borderline — exactly the line, 2048 MB | 0/6 | **DELETE** (already OUT before the wave) |
+| MiniCPM5-2B-mlx-4Bit (#42) | 1426 MB (1.33 GB) | Yes — headroom 2540 MB | 3-5/6 | **KEEP** (owner call — see below) |
+
+Deleting the four DELETEs reclaims **10 309 MB (~10.3 GB)**; deleting MiniCPM5-2B too
+reclaims **11 735 MB (~11.7 GB)**. Reverse cost is one `hf download <repo> --local-dir
+models/<name>` per model (the exact per-model commands and `scratch/check4*_download.log`
+are in §7c items 5-8) from the same confined `HF_HOME=<repo>/.cache/hf`, so a deleted
+model is one command to restore.
+
+**The one judgement call.** MiniCPM5-2B is the candidate to argue over: the only one
+that cleared node 12/12, the only one that reaches `EdgeDuplicate`/`SummarizedEntities`/
+`ExtractedEdges` and lands a real (if small) graph in full mode, and the only candidate
+that sits beside the 9B with real margin (2540 MB headroom). Recommend **keep** it as the
+single open re-measure seam for the #46 prompt/gating follow-up; **delete it with the
+rest if the owner prefers the full ~11.7 GB reclaimed.** Deletion (if any) is an owner /
+follow-up action — it is **not** performed here and `models/registry.json` `roles` are
+unchanged.
 
 ## 8. Reproduce
 
