@@ -26,6 +26,51 @@ The quant *fallbacks* (LFM3-1.7B-MLX-8bit, Ornith-1.5-9B-MLX-4bit) were deleted
 on 2026-11-07 to reclaim ~6.4 GB — both were measured (tables below), neither is
 assigned a role. Re-download with the Model Manager if a fallback is needed.
 
+### 1b. Step → model assignment (owner decision, issue #22)
+
+**Source:** the owner's decision on issue #22 (quoted in the commit that landed it,
+`fix/22-step-model-assignment`). Steps 1–3 keep the `small` role; steps 4–5 use the
+`big` role. The owner's fallback — "if it failed inform me and i will provide other
+options of large models" — is honoured by keeping the assignment a **role**, not a
+model name.
+
+| Step (UI `main.stepNames`) | Served by | Resolves to |
+|---|---|---|
+| 1 Graph Build — `ontologyGeneration` / `graphRagBuild` | `OntologyGenerator` + the graphiti seam | `Config.LLM_MODEL_NAME` → `small` (unchanged) |
+| 2 Env Setup | — | `Config.LLM_MODEL_NAME` → `small` (unchanged) |
+| 3 Run Simulation | `oasis_profile_generator` / `simulation_config_generator` | `Config.LLM_MODEL_NAME` → `small` (unchanged) |
+| 4 Report Generation | `ReportAgent` (`app/api/report.py` `/generate`) | **`big`** (`Ornith-1.5-9B-MLX-6bit`) |
+| 5 Deep Interaction | `ReportAgent.chat` (`/api/report/chat`) | **`big`** (`Ornith-1.5-9B-MLX-6bit`) |
+
+Implementation (`app/models/assignment.py`: `resolve_report_model`, wired into
+`ReportAgent.__init__`): steps 4–5 read the role name from
+`Config.REPORT_LLM_ROLE` (default `big`) and resolve it through
+`ModelStore.model_for_role` from `models/registry.json` **at call time**; an optional
+`Config.REPORT_LLM_MODEL_NAME` (default empty, must name an installed model) overrides
+it. Both knobs are documented in `.env.example`. No model name or machine path is
+hard-coded, so reassigning the `big` role in the Model Manager — or pointing the config
+value at another 9B-class model — changes the pipeline with no code change. An
+unassigned role, a deleted model or an unknown override raises
+`StepModelUnavailableError` naming the role, the Model Manager and the config key — it
+never falls back to `small` (that would silently undo the decision). Graph extraction
+(steps 1–3's graphiti seam) is untouched and still runs `small`.
+
+**Measured** (`scratch/prove_step_model_assignment.py`, real backend on a free port,
+Ollama stopped, log `logs/step_model_assignment.log`): the step-4 client resolved
+`Ornith-1.5-9B-MLX-6bit` through the role and answered the §3 report prompt
+(271 words, 27.8 s) **with the small model still resident**:
+
+    MODEL LOADED Ornith-1.5-9B-MLX-6bit [mlx] rss_before=1711MB rss_after=2602MB est=8004MB
+    MODEL UNLOADED Ornith-1.5-9B-MLX-6bit rss_before=2432MB rss_after=836MB
+
+Backend RSS 1711 → 2432 MB over the call (4735 MB peak sampled), back to 836 MB after
+the forced hard unload — the same hard-unload guarantee §4 records. Budget gate
+(`ModelManager._limit_violation`, `app/models/manager.py`) with the small model still
+resident: estimate 8004 MB + 1711 MB resident = 9715 MB against the 11264 MB budget,
+concurrency 4/4 — **no violation**, and the 9B loaded. (In-process RSS under-reports
+MLX unified memory the same way §4 notes: the load's own line read 2602 MB while the
+sampler saw 4735 MB peak.)
+
 ## 2. Small model — LFM3-1.7B-MLX 4-bit vs 8-bit (`scratch/small_bakeoff.py`)
 
 Run 2026-11-07, log `scratch/small_bakeoff_measured.log`. Each model inside its
@@ -242,6 +287,12 @@ the schema often enough that no 0-skip ingestion has been measured. Remaining op
 all requiring a decision: a shape clause that also names the schema-echo defect, an
 extraction-dedicated bigger model, or grammar-constrained decoding. Do **not** raise
 `GRAPHITI_LLM_MAX_TOKENS`.
+
+**The model question is now decided (§1b):** the owner kept extraction on the
+`small` role and moved steps 4–5 (Report Generation, Deep Interaction) to `big`.
+So "an extraction-dedicated bigger model" is off the table for this issue — the
+edge path stays a small-model prompt problem, and the remaining options are the
+shape clause and grammar-constrained decoding.
 
 ## 8. Reproduce
 
