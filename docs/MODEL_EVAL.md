@@ -434,6 +434,50 @@ The 1.7B stays at its measured 3/6 with the dedupe-echo class removed; the 9B is
 comment 2); with that routing the edge path is clear, without it #22's blocker is
 the 1.7B's edge-extraction verbosity, which no prompt variant has fixed.
 
+#### 5. Small-model candidate 1 — Qwen3.5-4B-MLX-4bit (issue #41) — **OUT**
+
+Branch `model/41-qwen35-4b-4bit` (off `phase6-integration` @ `0848d62`; the docs-only
+commit in this ticket). Weights `mlx-community/Qwen3.5-4B-MLX-4bit` downloaded once to
+`models/Qwen3.5-4B-MLX-4bit` (`HF_HOME=<repo>/.cache/hf`, nothing in `~/.cache`; log
+`scratch/check41_download.log`) — **3,061,132,920 B / 2.85 GB**, 12 files, ~84 s, clean.
+`mlx_vlm.load(path)` through the app's own runner path in 2.1 s, offline
+(`config.model_type=qwen3_5`). Registered in the git-ignored `models/registry.json`
+(backend `mlx`, `size_bytes` recorded) with **no role assigned** — `roles.small` stays
+`LFM3-1.7B-MLX-4bit`, `roles.big` stays `Ornith-1.5-9B-MLX-6bit`.
+
+Config in force identical to every §7c run: `json_schema` structured output,
+`GRAPHITI_LLM_MAX_TOKENS=4096`, `GRAPHITI_MAX_COROUTINES=2`, arctic-embed-s 384-d; a
+**fresh graph id per run**; Ollama stopped and asserted down before AND after by the
+harness; `GRAPHITI_LLM_MODEL=Qwen3.5-4B-MLX-4bit` (survives `load_dotenv`; a shell
+`LLM_MODEL_NAME` would be clobbered by `.env`). *LLM calls/chunk* was measured by an
+additive counter on the harness's existing `chat.completions.create` wrapper — the
+harness itself prints no per-chunk call count, so it was not previously observable.
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check41_node.log` | `check41_qwen4b_1794079623` | **0/12** | 12 | wrong-keys 12 | 167.6 | 14.0 s | 1.0 | 180→3198 MB | 3806 MB |
+| full ×1 | `check41_full.log` | `check41_qwen4b_1794079831` | **0/6** | 6 | wrong-keys 6 | 85.8 | 14.3 s | 1.0 | 180→3685 MB | 3777 MB |
+
+A second node run (`check41_qwen4b_1794079329`) reproduced 0/12 wrong-keys at 13.8 s
+mean — the failure is deterministic. It is **not** M1's 4096 clamp: every call returns
+`finish_reason=stop` with the inlined JSON schema verbatim
+(`{"$defs": {"ExtractedEntity": …}, "properties": …, "required": …, "title": …}`),
+so `ExtractedEntities(**payload)` raises `extracted_entities Field required` — the §7b
+*wrong-keys* class, now on the entity-extraction prompt itself. Because `extract_nodes`
+is the first call inside `graphiti.add_episode`, a chunk aborts before any edge/dedupe/
+summary call, which is why full mode makes **exactly one** LLM call per chunk (the 1.7B
+and 9B clear extraction and make several). granite-4.2-3b failed this same node prompt
+too, but as a *bare-array* `TypeError`; Qwen3.5-4B echoes the schema object instead.
+
+**Verdict — FAIL, does not reach the bar.** Full mode **0/6** against the 6/6-0-skip
+bar, and it never even reaches the `ExtractedEdges` edge path that blocks the 1.7B — it
+fails one step earlier, on `extract_nodes`. Against the 1.7B candidate-0 baseline (node
+12/12 @ 7.9 s; full 3/6 @ 72.4 s) it is **worse on every axis**: 0/12 node at ~1.8× the
+per-call wall time (14.0 s vs 7.9 s) with a slower 4B that still echoes, and 0/6 full
+(it cannot complete a single chunk). Resident RSS ~3.8 GB keeps it inside the 11 GB
+budget and far below the 9B's 7.30 GB, but memory is moot at 0/6. **Candidate 1 is OUT
+for #45; `small` role unchanged.**
+
 ## 8. Reproduce
 
 ```bash
