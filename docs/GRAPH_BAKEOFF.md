@@ -362,6 +362,211 @@ on a malformed-JSON chunk (run 1: 534 s, 0 entities), so its ingest is
 and chunk context — #39 must weigh that against Graphiti's partial-but-guaranteed
 graph, and against the 5-query latency gap.
 
+### 6c. Semantica (#38) — measured on the same document, in an isolated venv
+
+Harness: `scratch/bakeoff/bakeoff_baseline.py`'s patterns re-implemented for
+semantica in **`scratch/bakeoff/bakeoff_semantica.py`** (git-ignored) — same Ollama
+assertion, same sha256 re-verification at start-up, same free-port backend child
+with SIGTERM-only cleanup, same 100 ms psutil RSS sampling, tee'd log. Modes
+`smoke` / `run` / `crash` / `child`. Two complete runs of the identical document
+exist. **Run 2 is the run of record** (verbatim-storage check, clean call
+counters); run 1 corroborates it. Both ran on `phase6-integration` @ `4963ff8`,
+branch `bakeoff/38-semantica-identical-doc`.
+
+**Install row.**
+
+| Field | Value |
+|---|---|
+| venv | `Prediction/semantica/.venv-bakeoff` — Python **3.11.15**, created with `uv venv --python 3.11 .venv-bakeoff`; the project venv and `backend/.venv` are never touched |
+| install command | `uv pip install -e '.[llm-openai,embeddings-local]' --python .venv-bakeoff/bin/python` (**74 packages**, `semantica 0.8.0` installed from the tree in place) + `uv pip install psutil --python .venv-bakeoff/bin/python` (for §5's peak-RSS sampler; semantica does not depend on it) → **75 packages**, frozen verbatim to `scratch/bakeoff/semantica_venv_freeze.txt` |
+| resolved versions | `semantica 0.8.0` (local tree) · `openai 3.46.0` · `sentence-transformers 6.2.0` · `fastembed 0.9.1` · `onnxruntime 1.31.1` · `tokenizers 0.23.3` · `transformers 5.22.2` · `torch 2.15.0` · `numpy 2.4.6` · `pandas 3.1.1` · `scikit-learn 1.9.1` · `scipy 1.17.1` · `rdflib 7.6.0` · `networkx 3.6.1` · `pydantic 2.14.3` · `huggingface-hub 1.33.0` · `grpcio 1.85.1` · `pyarrow 26.0.1` · `protobuf 7.36.2` · `pillow 13.0.0` · `psutil 7.2.2` |
+| downloads | **0 model downloads** — `HF_HUB_OFFLINE=1` (and `TRANSFORMERS_OFFLINE=1`) for every run and for every crash child; the embedder loads from the shared `.cache/hf` (`Snowflake/snowflake-arctic-embed-s`, 0.12 s, 384-d) and the model is served by the project backend out of `Omnidroids/models`. Each run's backend log records **0 `download` lines**. PyPI wheels for the install itself were fetched once, before any run |
+| Ollama | closed and asserted closed before and after every run, and inside every crash child (`:11434` refuses throughout) |
+
+**How the LLM and the embedder were wired (the crux).** Semantica has its own
+OpenAI-compatible provider (`OpenAIProvider` in
+`semantica/semantic_extract/providers.py`), so the route is direct: the harness
+hands `GraphBuilder` the provider, the model and a `base_url`, and semantica's own
+provider pool records exactly what it resolved (read out of
+`semantica.semantic_extract.providers._provider_pool` after the run):
+
+    key ('openai', ('api_key','local-not-a-cloud-key'),
+         ('base_url','http://127.0.0.1:65121/v1'),
+         ('model','LFM3-1.7B-MLX-4bit'),
+         ('ner_method','llm'), ('relation_method','llm'),
+         ('triplet_method','llm'))
+      → OpenAIProvider, model=LFM3-1.7B-MLX-4bit,
+        base_url=http://127.0.0.1:65121/v1, api_key_is_local=True
+
+The embedder is the shared arctic model through semantica's own
+`EmbeddingGenerator`:
+
+    from semantica.embeddings import EmbeddingGenerator
+    from semantica.vector_store import VectorStore
+    store = VectorStore(backend="inmemory", dimension=384)
+    store.embedder = EmbeddingGenerator(method="sentence_transformers",
+                                        model_name="Snowflake/snowflake-arctic-embed-s")
+
+Five things a reviewer would otherwise repeat, all recorded:
+
+1. **`VectorStore`'s default embedder is the wrong model and cannot load
+   offline.** It builds `TextEmbedder(method="fastembed",
+   model_name="BAAI/bge-small-en-v1.5")`; that model is not in the shared cache,
+   so with `HF_HUB_OFFLINE=1` it fails — `Could not find the model tar.gz file at
+   …/fastembed_cache/bge-small-en-v1.5 and local_files_only=True` → `Failed to load
+   FastEmbed model 'BAAI/bge-small-en-v1.5' … Using fallback embedding method` —
+   and silently degrades to a hash embedding. Replacing the store's embedder with
+   the shared arctic model is therefore mandatory, not cosmetic.
+2. **Semantica's own KG-analytics components hit the same default.**
+   `ContextGraph`'s advanced-analytics block constructs its own
+   `EmbeddingGenerator()` (`Node2Vec embeddings disabled: gensim is required…`,
+   `Structural embeddings disabled: gensim is required…`, plus the fastembed
+   failure above). Neither is on the measured path — the vector store and the
+   graph reads use the shared embedder and the extracted graph — but the run's
+   log carries those lines and they are not hidden.
+3. **`instructor` is not installed** (it is not part of the `llm-openai` extra),
+   so `generate_typed` takes its documented fallback: a repair loop of up to 3
+   attempts that first calls `generate_structured` and then plain `generate` plus
+   `_parse_json`. That is the measured JSON path; with `instructor` present the
+   same call would go through `instructor.from_openai(mode=Mode.JSON)`.
+4. **Cloud keys are scrubbed from the harness's own environment.** Semantica
+   resolves an OpenAI key through `explicit kwarg → Config singleton →
+   OPENAI_API_KEY env var`, and this repo's `.env` carries `LLM_API_KEY`,
+   `LLM_BASE_URL` and `LLM_MODEL_NAME` — the same class of silent re-pointing #37
+   had to defend against. The harness deletes those variables (and every other
+   provider key) and pins `OPENAI_API_KEY=local-not-a-cloud-key`. In both runs the
+   environment it inherited already had none of them (`scrubbed_env_keys: []`)
+   and the pool record above shows `api_key_is_local=True`. Unlike cognee,
+   **semantica has no `.env`/dotenv search of its own** (no `load_dotenv` or
+   `find_dotenv` anywhere in the package), so there is no settings-file walk to
+   trip over — the scrub is kept because the env-var fallback is the same risk.
+5. **A base_url and no `response_format`.** Because `base_url` is set, semantica
+   drops `response_format=json_object` from `generate_structured` (the project's
+   /v1 proxy does not implement it) and asks for plain JSON instead; the warm-up
+   completion returns `model=LFM3-1.7B-MLX-4bit` (2.2 s) and each run's backend
+   log records one resident model and a clean unload:
+
+       [00:41:33] INFO: MODEL LOADED LFM3-1.7B-MLX-4bit [mlx] rss_before=179MB rss_after=1696MB est=1087MB
+       [00:52:28] INFO: MODEL UNLOADED LFM3-1.7B-MLX-4bit rss_before=1250MB rss_after=1250MB
+
+Everything else is semantica's own path. **Ingest:** one
+`GraphBuilder.build(chunk_text, ner_method="llm", relation_method="llm",
+triplet_method="llm")` per verified chunk, in the recorded order — the chunk text
+is passed as a single string source and `max_text_length` is left unset (provider
+default 64 000 chars against 218–495-char chunks), so semantica's extractor never
+re-chunks; the extracted entities/relationships are then handed to
+`AgentContext.memory.store(chunk, entities=…, relationships=…)` — the same call
+`AgentContext.store()` makes for a document — which embeds the chunk into the
+vector store and adds the entities/relationships to the `ContextGraph`
+(`VectorStore(backend="inmemory")`, no external service). **Retrieval:**
+`AgentContext.retrieve(query, use_graph=True, expand_graph=True,
+max_results=10)` — semantica's GraphRAG seam (vector leg + graph leg + memory
+leg, ranked and merged).
+
+| | run 2 — **run of record** | run 1 — corroboration |
+|---|---|---|
+| log / summary / queries | `semantica_1794069690.{log,json,queries.json}` | `semantica_1794068587.{log,json,queries.json}` |
+| store (candidate tree) | `../semantica/.bakeoff_run_1794069690/` (`graph.json` + `checkpoint.json`) | `../semantica/.bakeoff_run_1794068587/` |
+| **install + smoke** | install above; smoke = 1 chunk through the same API (`semantica_1794068164.json`): build 36.8 s, 15 entities / 8 relationships, 16 nodes / 8 edges, 5 queries at 0.042–0.051 s. (The same single chunk cost 56.6 s / 25 entities / 9 relationships as chunk 0 of the measured run, and 43.4 s / 19 entities / 10 relationships / 20 nodes / 10 edges as the crash test's first chunk — the spread is the 1.7B's variance again.) | same |
+| **wall time** | **651.7 s (10.9 min)** | 465.4 s (7.8 min) |
+| chunks ingested verbatim | **8 / 8** — `no_rechunking: verbatim 8/8`: the sha256 of each stored memory item's content equals the contract's per-chunk sha256, and `max_text_length` never fired | 8 / 8 accepted, 0 skipped; the verbatim sha256 check was added to the harness *after* run 1, so run 1 has no such measurement |
+| chunk-skip rate | **0 %** — no chunk is skipped and no chunk aborts the run; a failure would have been recorded per chunk in the summary | 0 % (same) |
+| LLM calls / prompts / retries | **29 / 35 / 6** (calls = adapter entries the extractors make: `EntitiesResponse` 8, `RelationsResponse` 8, `TripletsResponse` 8, `generate_structured` 5 — the relations fallback; prompts = `chat.completions.create` on the wire; `retries = prompts − calls`) | 27 adapter entries (23 typed + 4 `generate_structured`) / 32 prompts / 5 retries, recomputed from its recorded wire-level records (see the traceability note below) |
+| LLM seconds | 536.7 (typed calls only) | 409.9 |
+| tokens (prompt / completion) | 23 069 / 53 304 | 20 710 / 39 066 |
+| JSON parse failures / terminal failures | **7 / 0** (6 of the 7 surfaced as `ProcessingError` out of the adapter entry and were recovered by the fallback path or the next attempt) | **7 / 0** |
+| **peak RSS** | **self 653.9 MB + backend 1 748.1 MB = 2 401.8 MB** (5 769 samples at 100 ms) | self 662.2 + backend 1 766.6 = **2 428.8 MB** (4 052 samples) |
+| **graph quality** | **118 nodes / 47 edges** — labels `entity` 32, `CONCEPT` 31, `UNKNOWN` 18, `EVENT` 12, `ORG` 11, `DATE` 7, `PRODUCT` 3, `GPE` 2, `PERSON` 2 | **122 nodes / 56 edges** — labels `UNKNOWN` 45, `entity` 31, `CONCEPT` 20, `ORG` 8, `EVENT` 8, `PRODUCT` 4, `GPE` 3, `DATE` 3 |
+| model served | `LFM3-1.7B-MLX-4bit` (registry `small`; one resident model, clean unload) | same |
+
+Sample of what the 1.7B actually built (run 2, semantica's own
+`ContextGraph`):
+
+    武汉大学 -has_brand_reputation-> 声誉基石
+    武汉大学 -is_top985_university-> 顶尖985高校
+    武汉大学 -has_cultural_symbol:樱花-> 强大文化符号
+    武汉大学 -experiences_brand_reputation_volatility-> 声誉在短期内经历
+    武汉大学 -is_systemic_criticism_target-> 整体治理能力、程
+    单一的后勤服务或 -演变为-> 其整体治理能力、
+
+…and, from the triplet extractor, a tail of RDF-ish predicates the 1.7B invented
+(`http://example.org/...`, `http://example.org/related_to` ×2,
+`http://example.org/contributed_68%25_of_first-source_voice_volume`) — **18 of run
+2's 43 distinct edge types are such URIs** (19 of its 47 edges), which is honest
+noise in the edge-type distribution and belongs in the graph-quality judgement;
+run 1 had 15 URI edge types of 48.
+
+Per chunk, run 2:
+
+| idx | sha256 prefix | chars | status | wall s | LLM calls | entities | relationships |
+|---|---|---|---|---|---|---|---|
+| 0 | `69b2fb59d484` | 463 | succeeded | 56.6 | 4 | 25 | 9 |
+| 1 | `9713fa1f007c` | 218 | succeeded | 71.1 | 3 | 5 | 2 |
+| 2 | `6586199c4566` | 460 | succeeded | 58.3 | 3 | 3 | 1 |
+| 3 | `31f6cebfdb51` | 414 | succeeded | 123.1 | 4 | 15 | 1 |
+| 4 | `df8fb9d8c178` | 455 | succeeded | 110.6 | 4 | 9 | 7 |
+| 5 | `3b7c3580391b` | 426 | succeeded | 88.6 | 4 | 20 | 11 |
+| 6 | `9a037c94cd30` | 444 | succeeded | 59.7 | 3 | 14 | 15 |
+| 7 | `3b877a199a35` | 495 | succeeded | 83.6 | 4 | 7 | 1 |
+
+### Retrieval on the five fixed queries (semantica, `AgentContext.retrieve`, `max_results=10`)
+
+Latency is the wall time of semantica's own `context.retrieve()` call — no LLM
+completion happens inside it, which is why it is 0.2 s rather than cognee's 22–31 s.
+**Read the verdicts with what the retrieval returns in mind:** the 9 "facts" are
+whole chunk texts (semantica's memory items, i.e. the verbatim chunks), so with an
+8-chunk corpus every query gets essentially the whole document ranked by
+similarity — and the ranking is only weakly discriminative (top score 0.96–0.99,
+the next five within 0.92–0.96, the tail at 0.66–0.68). The graph leg
+was measured on its own for each query and returned **0 facts for all five**
+(`ContextGraph.query` is a substring match on whitespace-split tokens, and these
+queries are Chinese), so this is chunk recall, not graph reasoning. Run 2 (run of
+record); run 1 returned the same facts in the same order at the same latencies.
+
+| id | latency | facts | verdict | matched facts | quoted answer line |
+|---|---|---|---|---|---|
+| Q1 | 0.249 s | 9 | **relevant** | Q1-F1/F2/F3 | "单一的后勤服务或个体冲突事件，演变为对其整体治理能力、程序正义、学术诚信乃至大学精神的系统性质疑。…公众情感从初期的震惊、愤怒，迅速演变为深度的失望、嘲讽乃至羞耻感，形成了“985滤镜破碎”的集体认知" (rank 1, score 0.992) |
+| Q2 | 0.231 s | 9 | **relevant** | Q2-F1, Q2-F2, Q2-F3 | "…累计产生了超过28.7亿次的全平台阅读量，这一数字相当于过去五年相关话题阅读量总和的1.9倍" (rank 4, score 0.953; rank 7, score 0.929 also carries "2023年9月至2025年8月") |
+| Q3 | 0.214 s | 9 | **relevant** | Q3-F1, Q3-F2, Q3-F3 | "…初始的恐惧和焦虑在校方发布“合格”通报后，迅速转化为强烈的愤怒，并在第三方检测报告“实锤”后，愤怒与恐惧情绪交织达到顶峰" (rank 3, score 0.947; the “W型” fact at rank 6, score 0.932) |
+| Q4 | 0.220 s | 9 | **relevant** | Q4-F1, Q4-F2, Q4-F3, Q4-F4 | "…的主阵地，贡献了68%的首发声量。本周期内共产生47个相关热搜词条，其中43次登上“热搜第一”。…社会议题突围成本激增183%。同时，商业购买痕迹明显，至少7个热搜包被证实为付费推广" (rank 5, score 0.934 — all four expected facts in one returned chunk) |
+| Q5 | 0.213 s | 9 | **relevant** | Q5-F1, Q5-F2, Q5-F3 | "小红书：成为Z世代，特别是女性用户“维权”和“避坑”的主要阵地。鼠患、甲醛等后勤问题均首曝于此。…如“武大宿舍改造模板”、“高考志愿避坑指南”等笔记被大量复制和二次创作" and "抖音/短视频平台：…贡献了67%的视频类声量。负面舆情的视觉再生产平均延迟仅为2.1小时，传播速度比纯文本快3-5倍" (the same returned chunk, rank 5, score 0.935) |
+
+Full answer text for every query: `scratch/bakeoff/semantica_1794069690.queries.json`
+(run 1: `…1794068587.queries.json`).
+
+### Reliability and crash-resume (§5)
+
+| Behaviour | What the measurement recorded |
+|---|---|
+| JSON-with-local-LM | Semantica has **no truncation fail-fast class** and no fixed retry budget at the extractor level. With `instructor` absent, `generate_typed` runs its own repair loop (up to 3 attempts): `generate_structured` first (which, because `base_url` is set, omits `response_format=json_object`), then plain `generate` + `_parse_json`. Run 2: 29 adapter calls for 35 prompts on the wire, **7 `ProcessingError` parse failures** — 6 surfaced out of the adapter entry — all recovered, **0 terminal failures**, 0 chunks skipped, 0 provider failures. Run 1: the same 7 / 0. §5's definition adapted accordingly: the parse-failure count is semantica's own `_parse_json` raising (its warning line `generate_structured failed (Failed to parse JSON …); retrying with plain generate() + JSON parse.` is in the log); `retries = prompts − calls`; there is nothing analogous to M3's `_TruncatedJSONError` |
+| Crash-resume | Measured on a small fresh store (2 chunks, `--mode crash`, `semantica_1794070896`): SIGTERM at **t+47.4 s** — as soon as the first of the two chunks was checkpointed, i.e. mid-extraction of the second (a fixed t+20 s would always land inside the first chunk, which takes 43–123 s here) → the child exits **-15** (signal honoured; no `-9` anywhere). What survived on disk: the harness's own `checkpoint.json` + `graph.json` holding **chunk 0's graph (20 nodes / 10 edges)**; chunk 1's in-flight extraction was lost entirely. The restart (`--resume`) reloads that JSON through semantica's own `load_from_file` (0/0 → 20/10), and **the harness — not semantica — decides that chunk 0 is done**; chunk 1 is re-extracted from zero (48.9 s, 2 adapter calls) and the store ends at 23 nodes / 12 edges, `chunks_done=[0, 1]`. **Semantica has no resume entry point**: no ingest record, no per-chunk progress, nothing to reconcile — an interrupted ingest is redone, not resumed, and the only reason anything survived is that the caller saved a graph file |
+
+**The honest verdict sentence.** On the identical document with the shared small
+model and the shared embedder, **Semantica ingests all 8 chunks verbatim (no
+re-chunking, no skips) and builds a real graph — 118 nodes / 47 edges in 652 s —
+and answers 5 of the 5 fixed queries correctly at 0.21–0.25 s each**, where the
+Graphiti baseline needed 1 032 s, skipped 6 of 8 chunks and answered 1 of 5, and
+Cognee needed 230 s, skipped 0 and answered 4 of 5 at 22–31 s each. But the 5/5
+is **chunk recall, not graph reasoning**: semantica's own graph-search leg
+returned 0 facts for all five queries, so the retrieval being measured is vector
+similarity over whole chunks; its per-chunk cost is the highest of the three
+(3–4 LLM calls per chunk, 652 s for 3 375 chars, and the 1.7B's JSON validity
+still cost 7 recovered parse failures); and it has **no crash-resume entry point
+at all** — the only durable artefact is a graph file the caller chose to write.
+#39 must weigh that against Graphiti's partial-but-guaranteed graph and Cognee's
+all-or-nothing ingest.
+
+**Traceability caveat (honest accounting).** Run 1's call counters were recorded
+before the harness was corrected: its `provider_round_trips` (37) double-counted
+the 5 plain-`generate` fallbacks that its own `chat.completions.create` wrapper
+also counted, and its `llm_calls` (50) counted the `generate_structured`
+attempts made *inside* `generate_typed`'s repair loop as if they were separate
+logical calls. The harness was corrected for run 2 (a re-entrancy guard, and one
+wire-level counter), and run 1's numbers above are recomputed from its recorded
+records: 27 adapter entries, 32 wire prompts, 5 retries. Run 1's wall time, chunk
+outcomes, graph quality, peak RSS, JSON failures and every retrieval number are
+unaffected.
+
 ## 7. What the baseline does NOT yet demonstrate
 
 * **Crash-resume** (§5) was not measured in #36 — no SIGTERM-mid-ingest → restart
@@ -380,6 +585,12 @@ graph, and against the 5-query latency gap.
   — a re-`cognify()` starts a new run, skips the already-done indexing step and
   redoes the extraction. That is the candidate's measured behaviour, not a
   harness limitation; the same procedure still owes a Graphiti re-measurement.
+  **#38 measured it for Semantica** under the same procedure (§6c): a SIGTERM
+  mid-extraction leaves nothing of semantica's own on disk — the interrupted
+  chunk's work is lost and there is no ingest record, no per-chunk progress and
+  no resume entry point, so a restart redoes the interrupted chunk from zero and
+  keeps only what an external graph file happened to save (20 nodes / 10 edges
+  from the completed chunk, reloaded through `ContextGraph.load_from_file`).
 * **End-to-end step-1 success.** The baseline measures the incumbent's *real*
   behaviour on this extract — a 75 % chunk-skip rate — so "Graphiti built a graph
   in 17 min" is **not** a claim this doc makes: 2 of 8 chunks landed and the
@@ -414,6 +625,16 @@ graph, and against the 5-query latency gap.
 | cognee smoke test (1 chunk: wiring + API proof) | `scratch/bakeoff/cognee_1794054357.{log,json}` |
 | cognee crash-resume test (parent log + child log) | `scratch/bakeoff/cognee_1794055197.{log,crash_child.log,json}` |
 | cognee stores (ladybug graphs + lancedb vectors, candidate tree) | `../cognee/.bakeoff_store_{1794056509,1794055410}/` |
+| **semantica harness** (git-ignored, `--mode smoke\|run\|crash\|child`) | `scratch/bakeoff/bakeoff_semantica.py` |
+| semantica isolated-venv freeze (75 packages, the install row's evidence) | `scratch/bakeoff/semantica_venv_freeze.txt` |
+| **semantica run 2 log (run of record)** | `scratch/bakeoff/semantica_1794069690.log` |
+| semantica run 2 summary (every number in §6c) | `scratch/bakeoff/semantica_1794069690.json` |
+| semantica run 2 backend log (model load/unload, 0 downloads) | `scratch/bakeoff/semantica_1794069690.backend.log` |
+| semantica run 2 query answers | `scratch/bakeoff/semantica_1794069690.queries.json` |
+| corroborating semantica run 1 (log / json / queries / backend) | `scratch/bakeoff/semantica_1794068587.{log,json,queries.json,backend.log}` |
+| semantica smoke test (1 chunk: wiring + API proof) | `scratch/bakeoff/semantica_1794068164.{log,json,backend.log}` |
+| semantica crash-resume test (parent log + ingest/resume child logs) | `scratch/bakeoff/semantica_1794070896.{log,json,backend.log}` + `../semantica/.bakeoff_crash_1794070896/{crash_child.log,resume_child.log,graph.json,checkpoint.json}` |
+| semantica stores (in-memory graph + vector store, checkpointed JSON) | `../semantica/.bakeoff_run_{1794069690,1794068587}/` |
 
 **Traceability caveat (honest accounting):** the call counts in the tables above
 come from the harness's JSON summaries, which count every entry into the capped
@@ -469,3 +690,29 @@ the shared `snowflake-arctic-embed-s` through cognee's own `fastembed` engine
 (`NativeLiteLLMAdapter.acreate_structured_output`) plus every provider round trip
 (`litellm.acompletion`). No seam behaviour is patched; the store, dataset, `.env`
 file and graph are fresh per run.
+
+```bash
+# #38 Semantica (isolated venv, NEVER the project venv; Ollama closed)
+cd Prediction/semantica
+uv venv --python 3.11 .venv-bakeoff
+uv pip install -e '.[llm-openai,embeddings-local]' --python .venv-bakeoff/bin/python
+uv pip install psutil --python .venv-bakeoff/bin/python   # §5 peak-RSS sampling
+# smoke test first (1 chunk: wiring, ingest API, search):
+.venv-bakeoff/bin/python ../Omnidroids/scratch/bakeoff/bakeoff_semantica.py --mode smoke
+# the measured run (8 sha256-verified chunks, fresh store, 5 fixed queries):
+.venv-bakeoff/bin/python ../Omnidroids/scratch/bakeoff/bakeoff_semantica.py --mode run
+# §5 crash-resume procedure (SIGTERM mid-extract → restart → resume):
+.venv-bakeoff/bin/python ../Omnidroids/scratch/bakeoff/bakeoff_semantica.py --mode crash
+# → scratch/bakeoff/semantica_<epoch>.{log,json,queries.json,backend.log}
+```
+
+The semantica harness re-verifies the same extract and chunk sha256s, asserts
+Ollama is closed (in the parent and in every crash child), starts the project
+backend on a free port (SIGTERM-only cleanup), points semantica's own
+`OpenAIProvider` at that /v1 endpoint through `GraphBuilder(base_url=…)`, embeds
+with the shared `Snowflake/snowflake-arctic-embed-s` through semantica's own
+`EmbeddingGenerator` (`HF_HUB_OFFLINE=1`), and counts LLM calls at semantica's own
+adapter entries (`OpenAIProvider.generate_typed` / `generate_structured`) plus
+every prompt on the wire (`openai`'s `chat.completions.create`). No seam
+behaviour is patched; the extractor, graph, vector store, `ContextGraph` and
+checkpoint are fresh per run.
