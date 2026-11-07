@@ -189,6 +189,17 @@ class MLXRunner(_BaseRunner):
         super().__init__(name, path)
         self._model = None
         self._processor = None
+        # ONE dedicated worker thread per loaded model, created by load() and
+        # kept for the runner's lifetime. MLX's GPU streams are thread local
+        # and mlx_vlm.generate mutates shared model state (the KV cache), so
+        # every Metal call for this model must run on the same thread: the old
+        # asyncio.to_thread dispatch put concurrent graphiti calls
+        # (GRAPHITI_MAX_COROUTINES=2) on different threads and answered 17 of
+        # the 9B full-ingestion calls with 502 "There is no Stream(gpu, N) in
+        # current thread" (scratch/check24_9b_full_a.log, 4 of 6 chunks
+        # failed). The same executor also serialises generation on one model,
+        # which is what one GPU wants anyway; LLM_NUM_PARALLEL only queues.
+        self._executor = None
 
     async def load(self) -> None:
         try:
@@ -212,8 +223,18 @@ class MLXRunner(_BaseRunner):
             mx.eval(model.parameters())
             return model, processor
 
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            self._model, self._processor = ex.submit(_load).result()
+        # Created here, NOT in a `with` block: the worker thread must outlive
+        # load() so generate() can reuse it (tests/test_model_runtime_
+        # threading.py pins load-thread == generate-thread).
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix=f"mlx-{self.name}"
+        )
+        try:
+            self._model, self._processor = self._executor.submit(_load).result()
+        except Exception:
+            self._executor.shutdown(wait=True)
+            self._executor = None
+            raise
         self._loaded = True
         logger.info(
             "mlx loaded %s (rss=%dMB)", self.name, self.memory_footprint_mb()
@@ -260,27 +281,48 @@ class MLXRunner(_BaseRunner):
                 model=self.name,
             )
 
-        return await asyncio.to_thread(_gen)
+        if not self._executor:
+            raise RuntimeError(
+                f"MLX model {self.name} has no worker thread (load it first)"
+            )
+
+        # Same thread for every call: the model was loaded on this executor's
+        # worker and MLX's GPU streams are thread local, so generating elsewhere
+        # raises "There is no Stream(gpu, N) in current thread" once calls overlap.
+        return await asyncio.get_running_loop().run_in_executor(self._executor, _gen)
 
     async def unload(self) -> None:
         if not self._loaded:
             return
         logger.info("mlx unloading %s (rss before=%dMB)", self.name, self.memory_footprint_mb())
-        self._model = None
-        self._processor = None
+
+        def _release() -> None:
+            # Runs ON the model's worker thread: the two-pass release belongs to
+            # the thread that owns the device state, just as load/generate do.
+            self._model = None
+            self._processor = None
+            try:
+                import mlx.core as mx
+                # Two-pass release: the first gc.collect() frees the Python
+                # objects holding the model/processor (probe: ~340MB is only
+                # reclaimable AFTER gc, not by the cache clear alone);
+                # mx.clear_cache() then returns the Metal allocator's cache.
+                # mx.metal.clear_cache() is deprecated in mlx 0.32 — use the
+                # top-level API.
+                gc.collect()
+                mx.clear_cache()
+                gc.collect()
+                mx.clear_cache()
+            except Exception as exc:  # pragma: no cover
+                logger.debug("mlx cache clear: %s", exc)
+
+        executor, self._executor = self._executor, None
         try:
-            import mlx.core as mx
-            # Two-pass release: the first gc.collect() frees the Python objects
-            # holding the model/processor (probe: ~340MB is only reclaimable
-            # AFTER gc, not by the cache clear alone); mx.clear_cache() then
-            # returns the Metal allocator's cache. mx.metal.clear_cache() is
-            # deprecated in mlx 0.32 — use the top-level API.
-            gc.collect()
-            mx.clear_cache()
-            gc.collect()
-            mx.clear_cache()
-        except Exception as exc:  # pragma: no cover
-            logger.debug("mlx cache clear: %s", exc)
+            if executor is not None:
+                await asyncio.get_running_loop().run_in_executor(executor, _release)
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True)
         gc.collect()
         self._loaded = False
         logger.info("mlx unloaded %s (rss after=%dMB)", self.name, self.memory_footprint_mb())
