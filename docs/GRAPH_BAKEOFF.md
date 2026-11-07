@@ -221,6 +221,147 @@ it is the incumbent's coverage, not a retrieval bug.
 Full answer text for every query: `scratch/bakeoff/baseline_graphiti_1794046080.queries.json`
 (run 1: `…1794044987.queries.json`).
 
+### 6b. Cognee (#37) — measured on the same document, in an isolated venv
+
+Harness: `scratch/bakeoff/bakeoff_baseline.py`'s patterns re-implemented for
+cognee in **`scratch/bakeoff/bakeoff_cognee.py`** (git-ignored) — same Ollama
+assertion, same sha256 re-verification at start-up, same free-port backend child
+with SIGTERM-only cleanup, same 100 ms psutil RSS sampling, tee'd log. Two
+complete runs of the identical document exist. **Run 2 is the run of record**
+(ingest completed, full graph); run 1 corroborates it and records the failure
+class that made the second run necessary. Both ran on `phase6-integration` @
+`513fb2c`.
+
+**Install row.**
+
+| Field | Value |
+|---|---|
+| venv | `Prediction/cognee/.venv-bakeoff` — Python **3.11.15**, created with `uv venv --python 3.11 .venv-bakeoff`; the project venv is never touched |
+| install command | `uv pip install -e . --python .venv-bakeoff/bin/python` (**170 packages**, `cognee 1.6.6` installed from the tree in place) + `uv pip install psutil --python .venv-bakeoff/bin/python` (for §5's peak-RSS sampler; cognee does not depend on it) |
+| resolved versions | `cognee 1.6.6` (local tree) · `litellm 1.108.0` · `openai 2.54.0` · `fastembed 0.9.1` · `ladybug 0.19.0` (the embedded graph store, the Kuzu fork) · `lancedb 0.39.0` / `pylance 12.0.0` (vector store) · `onnxruntime 1.31.1` · `pandas 2.3.3` · `dlt 1.30.0` · `enola-cli 0.4.30` · `sqlalchemy 2.0.57` · `psutil 7.2.2` |
+| downloads | **0** — `HF_HUB_OFFLINE=1` for the whole run; the embedder loads from the shared `.cache/hf` (`snowflake/snowflake-arctic-embed-s`, 0.28 s) and the model is served by the project backend out of `Omnidroids/models` |
+| Ollama | closed and asserted closed before and after every run (`:11434` refuses) |
+
+**How the LLM and the embedder were wired (the crux).** Cognee resolves exactly
+one settings file (`COGNEE_ENV_FILE` → cwd-and-parents → package dir) and loads it
+with `override=True`, so the harness writes a per-run file and names it
+(`…/cognee_1794056509.json` → `env_file`):
+
+    LLM_PROVIDER=openai
+    LLM_MODEL=openai/LFM3-1.7B-MLX-4bit      # litellm's routing prefix, not a cloud route
+    LLM_ENDPOINT=http://127.0.0.1:<port>/v1   # this run's project-backend /v1 proxy
+    LLM_API_KEY=local-not-a-cloud-key        # the proxy is local and key-less
+    EMBEDDING_PROVIDER=fastembed
+    EMBEDDING_MODEL=snowflake/snowflake-arctic-embed-s
+    EMBEDDING_DIMENSIONS=384
+    GRAPH_DATABASE_PROVIDER=ladybug   VECTOR_DATABASE_PROVIDER=lancedb
+
+Two workarounds were needed, both recorded because a reviewer would otherwise
+repeat them:
+
+1. **Cognee's `.env` search finds this repo's own `Omnidroids/.env`** (the harness
+   runs from `scratch/bakeoff`, and the search walks up to the project root) and
+   loads it with `override=True`. That file carries `LLM_API_KEY`, `LLM_BASE_URL`
+   and `LLM_MODEL_NAME` — exactly the keys that would silently re-point cognee at
+   a cloud endpoint. `COGNEE_ENV_FILE` is therefore mandatory, not cosmetic.
+2. **litellm refuses a bare model name** — the first smoke attempt failed with
+   `litellm.BadRequestError: LLM Provider NOT provided. You passed
+   model=LFM3-1.7B-MLX-4bit`, so `LLM_MODEL` carries the `openai/` prefix. The
+   model that actually serves is still the registry `small` model: each run's
+   warm-up completion returns `model=LFM3-1.7B-MLX-4bit` (2.2 s) and the backend
+   log records `INFO: MODEL LOADED LFM3-1.7B-MLX-4bit [mlx]` … `INFO: MODEL
+   UNLOADED LFM3-1.7B-MLX-4bit` once per run.
+
+Everything else is cognee's own path: `cognee.add()` per verified chunk (in the
+recorded order, one document per chunk), then one `cognee.cognify([dataset],
+chunk_size=500)`; `chunk_size=500` keeps every chunk inside arctic's 512-token
+window and inside cognee's own paragraph chunker, which the harness then verifies
+did not re-chunk.
+
+| | run 2 — **run of record** | run 1 — corroboration |
+|---|---|---|
+| log / summary / queries | `cognee_1794056509.log` / `.json` / `.queries.json` | `cognee_1794055410.{log,json,queries.json}` |
+| dataset / store | `bakeoff_cognee_1794056509` / `../cognee/.bakeoff_store_1794056509/` | `bakeoff_cognee_1794055410` / `…store_1794055410/` |
+| **install + smoke** | install above; smoke = 1 chunk through the same API (`cognee_1794054357.json`): add 1.3 s, cognify 198.4 s, 4 LLM calls / 13 prompts, `SearchType.GRAPH_COMPLETION` answer in 22.2 s. (Earlier smoke attempts in the same session cost 15–28 s of cognify — the spread is the 1.7B's JSON variance again.) | same |
+| **wall time** | **229.9 s** (add 1.5 s + cognify 228.5 s) | 533.8 s — aborted by the terminal failure |
+| chunks ingested verbatim | **8 / 8** (`no_rechunking: chunk_nodes 8, expected 8, verbatim 8` — each stored `DocumentChunk` text equals the sha256-verified chunk) | **8 / 8** (identical) |
+| chunk-skip rate | **0 %** — no chunk is ever skipped; a per-chunk failure fails the whole pipeline instead | 0 % skipped, **but the extraction stage never finished** |
+| LLM calls / attempts / retries | **9 / 10 / 1** (8 × `KnowledgeGraph` + 1 × `str` connection test) | **9 / 13 / 4** |
+| provider round trips | **13** (`litellm.acompletion` prompts) | **29** |
+| LLM seconds | 910.0 (concurrent calls summed) | 2 769.8 |
+| tokens (prompt / completion) | 22 865 / 16 785 | 54 122 / 41 513 |
+| JSON parse failures | 1 logged `validation retry 1/3` for `KnowledgeGraph`; **0 terminal failures** | 8 logged validation retries **+ 1 terminal `ValidationError`** |
+| **peak RSS** | **self 774.1 MB + backend 2 126.4 MB = 2 900.6 MB** (2 005 samples) | self 772.0 + backend 2 122.0 = **2 893.8 MB** (4 821 samples) |
+| **graph quality** | **105 nodes / 222 edges** — `Entity` 63, `EntityType` 10, `Timestamp` 8, `TextSummary` 8, `DocumentChunk` 8, `TextDocument` 8; edges `contains` 80, `is_a` 64, `made_from` 8, `is_part_of` 8 + 42 distinct semantic relations (`causes`, `manifests_in`, `diffusion_chain`, `has_impact_index`, `plays_role_of`, …) | **16 nodes / 8 edges** — `DocumentChunk` 8, `TextDocument` 8, `is_part_of` 8; **0 entities, 0 entity edges** |
+| model served | `LFM3-1.7B-MLX-4bit` (registry `small`; one resident model, clean unload) | same |
+
+**Run 1's terminal failure, verbatim** (the class that makes the second run
+necessary — cognee exits 422 rather than skipping a chunk):
+
+    CognifyFailedError: Cognify failed for dataset 'bakeoff_cognee_1794055410':
+    ValidationError: 1 validation error for KnowledgeGraph
+      Invalid JSON: trailing comma at line 131 column 5
+
+That left only the indexing stage's 16 nodes on disk. Run 2 ran the identical
+command to completion: the 1.7B's JSON validity, not the harness, decides which
+run you get — the same variance class that caps the Graphiti baseline.
+
+Per chunk, run 2 (extraction span inside the concurrent
+`extract_graph_from_data` gather — the spans overlap and are not additive; the
+calls column is exact):
+
+| idx | sha256 prefix | LLM calls | extraction span s |
+|---|---|---|---|
+| 0 | `69b2fb59d484` | 1 | 110.9 |
+| 1 | `9713fa1f007c` | 1 | 37.0 |
+| 2 | `6586199c4566` | 1 | 79.8 |
+| 3 | `31f6cebfdb51` | 1 | 62.5 |
+| 4 | `df8fb9d8c178` | 1 | 125.1 |
+| 5 | `3b7c3580391b` | 1 | 169.6 |
+| 6 | `9a037c94cd30` | 1 | 98.8 |
+| 7 | `3b877a199a35` | 1 | 226.1 |
+
+### Retrieval on the five fixed queries (cognee, `SearchType.GRAPH_COMPLETION`, `top_k=10`)
+
+Latency is the wall time of cognee's own `cognee.search()` call. Each call also
+spends part of that latency on cognee's session-memory analysis, which in run 1's
+log fails open after a 30 s timeout (`Concurrent turn analysis failed open:
+exception_type=TimeoutError`) — that overhead is part of the measured latency, not
+excluded from it. Run 2 (run of record):
+
+| id | latency | facts | verdict | matched facts | quoted answer line |
+|---|---|---|---|---|---|
+| Q1 | 31.3 s | 1 | **relevant** | Q1-F1 | "武汉大学的舆情危机从单一事件演变为系统性质疑，主要涉及以下方面：1. **结构性失衡**：结构性失衡、程序正义缺位…" |
+| Q2 | 31.2 s | 1 | **relevant** | Q2-F1, Q2-F2 | "五大热点事件的全平台总阅读量是 28.7 亿+，相比过去五年的总和是 190% 倍。" (the report's "↑190% (vs. 五年总和)" IS the 1.9× fact) |
+| Q3 | 22.6 s | 1 | **partial** | none of Q3-F1/F2/F3 | "**关于：甲醛宿舍事件期间公众的情感是如何演变的？**… 1. **从"主阵地"到"热搜第一"的传播爆发**" — the subject is named, but no 恐惧/合格/愤怒/顶峰/W型 |
+| Q4 | 31.4 s | 1 | **relevant** | Q4-F1, Q4-F2 | "**微博的角色**：…基于"热搜"和"热搜词条"的概念…""爆的主阵地，贡献了68%的首发声量"与"本周期内共产生47个相关热搜词 条"" |
+| Q5 | 31.2 s | 1 | **relevant** | Q5-F1/F2/F3 | "**抖音/短视频平台**是负面舆情的核心传播渠道，贡献了**67%**的视频类声量。负面舆情的视觉再生产平均延迟为**2.1小时**，传播速度比纯文本快3-5倍。" (+ 小红书, 鼠患, 避坑, 模板) |
+
+Full answer text for every query: `scratch/bakeoff/cognee_1794056509.queries.json`
+(run 1: `…1794055410.queries.json`, whose 4 relevant / 1 irrelevant verdicts were
+reached from chunk text because run 1's graph held no entities).
+
+Note the cost: **22–31 s per query against the baseline's 0.03–0.05 s**, because
+each cognee search runs its own LLM completion.
+
+### Reliability and crash-resume (§5)
+
+| Behaviour | What the measurement recorded |
+|---|---|
+| JSON-with-local-LM | Cognee has **no fail-fast truncation class**; `litellm_native` instead re-prompts with the validation error up to 3× per call. Run 2: 13 prompts for 9 logical calls, 1 logged `validation retry 1/3`, **0 terminal failures**. Run 1: 29 prompts for 9 logical calls, 8 logged retries, **1 terminal `ValidationError`** (`Invalid JSON: trailing comma…`) plus one `CancelledError` in the failure ledger. §5's definition adapted accordingly: the parse-failure count is cognee's own `validation retry` warnings in its dated log; the terminal failure is the `ValidationError` out of `acreate_structured_output`; there is nothing analogous to M3's `_TruncatedJSONError` |
+| Crash-resume | Measured on a small fresh store (2 chunks, `--mode crash`, `cognee_1794055197`): SIGTERM at t+20 s mid-extraction → the child exits `-15` (signal honoured; no `-9` anywhere). The interrupted run stays **non-terminal on disk** — `pipeline_runs` keeps a `cognify_pipeline` row with `DATASET_PROCESSING_STARTED … end=None`. Re-running `cognify()` on the same dataset then: skips `indexing_pipeline` ("no item needs it (already processed)"), starts a **new** `cognify_pipeline` run, re-extracts both items ("entities and relationships extracted for 2 item(s), 0 already were") and completes. **Cognee has no resume entry point** — an interrupted ingest is redone, not resumed. `cognee/modules/cognify/recovery.py` reconciles abandoned runs only after `COGNEE_STALE_RUN_RECOVERY_MIN_AGE_SECONDS` (default 3600 s), which this test did not wait out |
+
+**The honest verdict sentence.** On the identical document with the shared small
+model and the shared embedder, **Cognee ingests all 8 chunks verbatim (no
+re-chunking, no skips) and, when the 1.7B's JSON is valid, builds a real graph —
+105 nodes / 222 edges in 230 s — and answers 4 of the 5 fixed queries correctly
+at 22–31 s per query**, where the Graphiti baseline needed 1 032 s, skipped 6 of
+8 chunks and answered 1 of 5. The same cognee command can also die mid-extraction
+on a malformed-JSON chunk (run 1: 534 s, 0 entities), so its ingest is
+**all-or-nothing rather than fault-tolerant**, and it answers from a mix of graph
+and chunk context — #39 must weigh that against Graphiti's partial-but-guaranteed
+graph, and against the 5-query latency gap.
+
 ## 7. What the baseline does NOT yet demonstrate
 
 * **Crash-resume** (§5) was not measured in #36 — no SIGTERM-mid-ingest → restart
@@ -232,7 +373,13 @@ Full answer text for every query: `scratch/bakeoff/baseline_graphiti_1794046080.
   artifact of that kind. **Where it is covered:** #37 and #38 must measure
   crash-resume for their candidates under the same procedure; a Graphiti
   re-measurement needs a resume entry point in the harness (the harness has no
-  `--resume-batch`; building one was out of #36's scope).
+  `--resume-batch`; building one was out of #36's scope). **Where it is covered:**
+  #37 measured it for **Cognee** under the same procedure (§6b): a SIGTERM
+  mid-cognify leaves the interrupted pipeline run non-terminal on disk
+  (`DATASET_PROCESSING_STARTED`, no `ended_at`) and cognee has **no resume entry**
+  — a re-`cognify()` starts a new run, skips the already-done indexing step and
+  redoes the extraction. That is the candidate's measured behaviour, not a
+  harness limitation; the same procedure still owes a Graphiti re-measurement.
 * **End-to-end step-1 success.** The baseline measures the incumbent's *real*
   behaviour on this extract — a 75 % chunk-skip rate — so "Graphiti built a graph
   in 17 min" is **not** a claim this doc makes: 2 of 8 chunks landed and the
@@ -258,6 +405,15 @@ Full answer text for every query: `scratch/bakeoff/baseline_graphiti_1794046080.
 | corroborating run 1 (log / json / queries / backend) | `scratch/bakeoff/baseline_graphiti_1794044987.{log,json,queries.json,backend.log}` |
 | the seam's own dated log (raw LLM bodies + skips, both runs) | `backend/logs/2026-11-07.log` |
 | the graphs themselves (Kuzu + batch records) | `backend/data/graphiti/bakeoff_graphiti_base_{1794046080,1794044987}/` |
+| **cognee harness** (git-ignored, `--mode smoke\|run\|inspect\|crash\|child`) | `scratch/bakeoff/bakeoff_cognee.py` |
+| **cognee run 2 log (run of record)** | `scratch/bakeoff/cognee_1794056509.log` |
+| cognee run 2 summary (every number in §6b) | `scratch/bakeoff/cognee_1794056509.json` |
+| cognee run 2 backend log (model load/unload) | `scratch/bakeoff/cognee_1794056509.backend.log` |
+| cognee run 2 query answers | `scratch/bakeoff/cognee_1794056509.queries.json` |
+| corroborating cognee run 1 (log / json / queries / backend) | `scratch/bakeoff/cognee_1794055410.{log,json,queries.json,backend.log}` |
+| cognee smoke test (1 chunk: wiring + API proof) | `scratch/bakeoff/cognee_1794054357.{log,json}` |
+| cognee crash-resume test (parent log + child log) | `scratch/bakeoff/cognee_1794055197.{log,crash_child.log,json}` |
+| cognee stores (ladybug graphs + lancedb vectors, candidate tree) | `../cognee/.bakeoff_store_{1794056509,1794055410}/` |
 
 **Traceability caveat (honest accounting):** the call counts in the tables above
 come from the harness's JSON summaries, which count every entry into the capped
@@ -289,3 +445,27 @@ shipped `GraphBuilderService` (create → ontology → `add_text_batches` →
 `_CappedLLMClient` — it patches no seam behaviour. `#37` (Cognee) and `#38`
 (Semantica) re-run §3's conditions with their own isolated venvs and report the
 §5 metrics on this same document and the same five queries.
+
+```bash
+# #37 Cognee (isolated venv, NEVER the project venv; Ollama closed)
+cd Prediction/cognee
+uv venv --python 3.11 .venv-bakeoff
+uv pip install -e . --python .venv-bakeoff/bin/python
+uv pip install psutil --python .venv-bakeoff/bin/python   # §5 peak-RSS sampling
+# smoke test first (1 chunk: wiring, ingest API, search):
+.venv-bakeoff/bin/python ../Omnidroids/scratch/bakeoff/bakeoff_cognee.py --mode smoke
+# the measured run (8 sha256-verified chunks, fresh store, 5 fixed queries):
+.venv-bakeoff/bin/python ../Omnidroids/scratch/bakeoff/bakeoff_cognee.py --mode run
+# §5 crash-resume procedure (SIGTERM mid-cognify → restart → resume):
+.venv-bakeoff/bin/python ../Omnidroids/scratch/bakeoff/bakeoff_cognee.py --mode crash
+# → scratch/bakeoff/cognee_<epoch>.{log,json,queries.json,backend.log}
+```
+
+The cognee harness re-verifies the same extract and chunk sha256s, asserts Ollama
+is closed, starts the project backend on a free port (SIGTERM-only cleanup),
+points cognee's OpenAI-compatible LLM client at that /v1 endpoint, embeds with
+the shared `snowflake-arctic-embed-s` through cognee's own `fastembed` engine
+(`HF_HUB_OFFLINE=1`), and counts LLM calls at cognee's own adapter entry
+(`NativeLiteLLMAdapter.acreate_structured_output`) plus every provider round trip
+(`litellm.acompletion`). No seam behaviour is patched; the store, dataset, `.env`
+file and graph are fresh per run.
