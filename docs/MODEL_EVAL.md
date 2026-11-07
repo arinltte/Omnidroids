@@ -478,6 +478,98 @@ per-call wall time (14.0 s vs 7.9 s) with a slower 4B that still echoes, and 0/6
 budget and far below the 9B's 7.30 GB, but memory is moot at 0/6. **Candidate 1 is OUT
 for #45; `small` role unchanged.**
 
+#### 6. Small-model candidate 2 — MiniCPM5-2B-mlx-4Bit (issue #42) — **OUT**
+
+Branch `model/42-minicpm5-2b-4bit` (off `phase6-integration` @ `a50c906`; the docs-only
+commit in this ticket). Weights `mlx-community/MiniCPM5-2B-mlx-4Bit` downloaded once to
+`models/MiniCPM5-2B-mlx-4Bit` (`HF_HOME=<repo>/.cache/hf`, nothing new in `~/.cache`; log
+`scratch/check42_download.log`) — **1,426,011,807 B / 1.33 GB**, 9 files, ~41 s, clean.
+Loaded through the app's own runner path (`app.models.runtime.MLXRunner.load`, what
+`ModelManager` serves the seam) in ~1 s, offline: `config.model_type=llama`, vocab
+130 560, hidden 2048, 42 layers, rss 1912 MB, unload OK. Registered in the git-ignored
+`models/registry.json` (backend `mlx`, `size_bytes` recorded) with **no role assigned** —
+`roles.small` stays `LFM3-1.7B-MLX-4bit`, `roles.big` stays `Ornith-1.5-9B-MLX-6bit`.
+
+Config in force identical to every §7c run: `json_schema` structured output,
+`GRAPHITI_LLM_MAX_TOKENS=4096`, `GRAPHITI_MAX_COROUTINES=2`, arctic-embed-s 384-d; a
+**fresh graph id per run**; Ollama stopped and asserted down before AND after by the
+harness; `GRAPHITI_LLM_MODEL=MiniCPM5-2B-mlx-4Bit` (survives `load_dotenv`; a shell
+`LLM_MODEL_NAME` would be clobbered by `.env`). *LLM calls/chunk* is the harness's own
+per-chunk `calls=` column (its additive counter on the `chat.completions.create` wrapper,
+printed in every `[chunk]` line and the `[sum]` line); peak RSS comes from the
+`scratch/rss_sampler.py` thread that `scratch/check42_run.sh` runs beside the harness.
+
+Row of record — both launches from `backend/` exactly as #41 did, on fresh graph ids:
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check42_node.log` | `check42_minicpm5_1794082200` | **12/12** | 0 | — | 47.9 | 4.0 s | 1.0 | 180→2026 MB | 2026 MB |
+| full ×1 | `check42_full.log` | `check42_minicpm5_1794082300` | **3/6** | 3 | other-validation 2, wrong-keys 1 | 65.3 | 10.9 s | 2.3 | 180→2026 MB | 2026 MB |
+
+Reproducibility — the same two modes run again from `backend/` on fresh graph ids
+(`_rep1` the pair, `_rep2` a further full run). The ok count moves between runs; it never
+reaches 6/6:
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check42_node_rep1.log` | `check42_minicpm5_1794081200` | 12/12 | 0 | — | 47.9 | 4.0 s | 1.0 | 2024 MB |
+| full ×1 | `check42_full_rep1.log` | `check42_minicpm5_1794081300` | 4/6 | 2 | wrong-keys 1, malformed-json 1 | 154.6 | 25.8 s | 3.2 | 2026 MB |
+| full ×1 | `check42_full_rep2.log` | `check42_minicpm5_1794081700` | 5/6 | 1 | wrong-keys 1 | 65.5 | 10.9 s | 2.2 | 2025 MB |
+
+**Failure classes, per chunk.** Unlike candidates 0/1 this one clears the prompts they die
+on: `ExtractedEntities` answers with the right wrapper and sensible `entity_type_id`s,
+`NodeResolutions` answers with `entity_resolutions`, and it reaches `SummarizedEntities`.
+It then fails one step later — and **which** prompt fails moves between runs, so the class
+has to be named per chunk:
+
+| run | failing chunk | response model | shape |
+|---|---|---|---|
+| node ×2 (both node runs) | none | — | 12/12, every body `finish_reason=stop` and schema-valid |
+| full (`check42_full.log`) | 2, 5 | `ExtractedEdges` | **null placeholder**: `{"source_entity_name": null, "target_entity_name": null, "relation_type": null, "fact": null, "valid_at": null, "invalid_at": null, "episode_indices": []}` — schema-shaped but null, so `edges.0.source_entity_name Input should be a valid string` (`other-validation`) |
+| full (`check42_full.log`) | 4 | `EdgeDuplicate` | **half-echo** (`calls=4` with retries): `{"properties": {"duplicate_facts": [], "contradicted_facts": []}, "required": […], "title": "EdgeDuplicate", "type": "object"}` — real values one level too deep, so `duplicate_facts Field required` |
+| full (`check42_full_rep1.log`) | 2 | `EdgeDuplicate` | the same half-echo |
+| full (`check42_full_rep1.log`) | 3 | `SummarizedEntities` | **broken JSON**: a `$defs` echo, then four tenacity retries (`calls=7`) ending in `Expecting ',' delimiter: line 1 column 873` — a syntax error inside a `finish_reason=stop` body, not a clamp truncation |
+| full (`check42_full_rep2.log`) | 3 | `ExtractedEdges` | **class-name echo**: `{"ExtractedEdges": [{"source_entity_name": …}]}` — the real array under the model's own class name, so `edges Field required` |
+
+An earlier full run (19:47Z, same conditions) failed as two `$defs` schema echoes
+(`SummarizedEntities`, then `ExtractedEdges`) at 4/6; it was overwritten while a
+launch-path mistake was being fixed (the runner's `../scratch/` resolves differently from
+the repo root than from `backend/`, which put that pair's sampler `.rss` one directory up
+under `Prediction/scratch/`); the stray files were removed and every surviving run pair
+(`check42_*.log` + `check42_*.rss`) is coherent under `Omnidroids/scratch/`.
+**No failure in any run is M1's 4096 clamp**: there are zero `_TruncatedJSONError`s and no
+`finish_reason=length`, which is the class that blocks the 1.7B.
+
+**Two caveats the ok-count hides.** (a) *Empty extraction.* A chunk that "passes" with
+`nodes=0 edges=0` is schema-valid and still useless: in the row-of-record full run only
+chunk 3 carried a graph (2 nodes, 1 edge) — chunks 0 and 1 passed as `{"extracted_entities":
+[]}` / `{"edges": []}` and the other three chunks are the failures; in `_rep2` 5 of 6
+chunks came back empty and the whole graph was chunk 0 (6 nodes, 3 edges). Node mode tells
+the same story — 0-6 entities per chunk against the 1.7B's steady 5-14
+(`check24_1p7b_node_a.log`), and in the row-of-record run's first repeat every one of the
+six chunks returned `{"extracted_entities": []}`. (b) *Not deterministic.* The two
+repeats of one node run disagree on the same chunk (row of record: chunk 5 returns 6
+entities in the second repeat and 0 in the first;
+`check42_node_rep1.log`: chunk 1 returns 4 then 0,
+and chunk 2's `National Oceanographic Bureau` is typed `2` then `3`) although
+`temperature=0.0` is requested — the MLX runner drops temperature below 1, so sampling
+stays on. The full-mode class differs run to run for the same reason.
+
+**Verdict — FAIL, does not reach the bar.** Full mode never reached 6/6 with 0 skips in
+any of the three surviving runs (3/6, 4/6, 5/6 — 12/18 chunks). It is the best candidate
+measured so far on the harness's own numbers: against candidate 1 (Qwen3.5-4B: 0/12 node,
+0/6 full) it is better on every axis, and against the 1.7B baseline (node 12/12 @ 7.9 s;
+full 3/6 @ 72.4 s) it is **faster** (node mean 4.0 s, full mean 10.9 s) with a different
+blocker — schema echo, a null-filled placeholder or broken JSON on `EdgeDuplicate`,
+`SummarizedEntities` or `ExtractedEdges` instead of `ExtractedEdges` verbosity at the
+4096 clamp. Resident RSS ~2.03 GB is the smallest of the wave, far inside the 11 GB
+budget. **But the extra passes are not extra graph:** the 1.7B's three passing chunks
+carry 6/15/12 nodes and 7/10/6 edges (`check24_1p7b_full_c.log`), while MiniCPM5's best
+run passes 5 chunks carrying 6 nodes and 3 edges in total, the failing prompt moves
+between runs, and its own repeats disagree. It cannot be handed the `small` role on a gate
+that a 0-node/0-edge chunk would pass. **Candidate 2 is OUT for #45; `small` role
+unchanged, and the gap is recorded rather than downgraded silently.**
+
 ## 8. Reproduce
 
 ```bash
