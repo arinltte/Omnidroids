@@ -35,11 +35,13 @@ import contextlib
 import json
 import logging
 from types import SimpleNamespace
+from typing import List
 
 import pytest
+from graphiti_core.prompts.dedupe_edges import EdgeDuplicate
 from graphiti_core.prompts.dedupe_nodes import NodeResolutions
 from graphiti_core.prompts.extract_edges import ExtractedEdges
-from graphiti_core.prompts.extract_nodes import ExtractedEntities
+from graphiti_core.prompts.extract_nodes import ExtractedEntities, SummarizedEntities
 from graphiti_core.prompts.lib import prompt_library
 from graphiti_core.prompts.models import Message
 from pydantic import BaseModel, ValidationError
@@ -59,6 +61,30 @@ _ITEM_REQUIREMENTS_SENTENCE = (
     'every item of "extracted_entities" must contain name (string), '
     'entity_type_id (integer). Omit any item that lacks one of its required '
     'fields.'
+)
+
+# The plain-English statement the seam sends instead of graphiti's raw dump for
+# the ECHO-PRONE response models (NodeResolutions, EdgeDuplicate — see
+# _ECHO_PRONE_RESPONSE_MODELS and the dedupe-split section below): the schema's
+# own top-level key, its own JSON type and its own required set, in words.
+# Measured cause: these models answer a raw dump with the dump itself — 3 of 5
+# NodeResolutions on the 1.7B ({"$defs": {"NodeDuplicate": ...}), 5 of 5
+# EdgeDuplicate on the 9B ({"properties": {"duplicate_facts": []}}) — each a
+# wrong-keys skip (scratch/final_full.log, scratch/check24_9b_full_b.log).
+_ENTITIES_PLAIN_STATEMENT = (
+    'An object with the required key "extracted_entities", holding an array of '
+    "objects."
+)
+_EDGES_PLAIN_STATEMENT = (
+    'An object with the required key "edges", holding an array of objects.'
+)
+_RESOLUTIONS_PLAIN_STATEMENT = (
+    'An object with the required key "entity_resolutions", holding an array of '
+    "objects."
+)
+_EDGE_DEDUPE_PLAIN_STATEMENT = (
+    'An object with the required keys "duplicate_facts", holding an array of '
+    'integers and "contradicted_facts", holding an array of integers.'
 )
 
 # The shape clause the seam appends for EVERY response model: ONE compact line
@@ -270,7 +296,10 @@ def test_schema_reminder_appended_for_a_response_model(monkeypatch):
 
     sent = calls[0]["messages"]
     assert result == {"extracted_entities": []}
-    # graphiti's own block, verbatim (the R2 follow-up sentence follows it)
+    # an EXTRACTION prompt keeps graphiti's verbatim dump: it is the only
+    # compact one-line exemplar the model gets and no measured model ever echoed
+    # it (#24 dropped it and the 1.7B pretty-printed 10x slower, granite-4.2-3b
+    # lost the wrapper entirely — MODEL_EVAL §7c)
     assert _SCHEMA_REMINDER + json.dumps(ExtractedEntities.model_json_schema()) in sent[
         -1
     ]["content"]
@@ -344,10 +373,11 @@ def test_schema_reminder_is_mode_independent(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "response_model, item_sentence, extra_clauses",
+    "response_model, schema_block, item_sentence, extra_clauses",
     [
         (
             ExtractedEntities,
+            json.dumps(ExtractedEntities.model_json_schema()),
             'every item of "extracted_entities" must contain name (string), '
             'entity_type_id (integer). Omit any item that lacks one of its '
             'required fields.',
@@ -355,6 +385,7 @@ def test_schema_reminder_is_mode_independent(monkeypatch):
         ),
         (
             ExtractedEdges,
+            json.dumps(ExtractedEdges.model_json_schema()),
             'every item of "edges" must contain source_entity_name (string), '
             'target_entity_name (string), relation_type (string), fact (string). '
             'Omit any item that lacks one of its required fields.',
@@ -362,6 +393,7 @@ def test_schema_reminder_is_mode_independent(monkeypatch):
         ),
         (
             NodeResolutions,
+            _RESOLUTIONS_PLAIN_STATEMENT,
             'every item of "entity_resolutions" must contain id (integer), '
             'name (string), duplicate_candidate_id (integer). Omit any item that '
             'lacks one of its required fields.',
@@ -370,18 +402,23 @@ def test_schema_reminder_is_mode_independent(monkeypatch):
     ],
 )
 def test_schema_reminder_restates_required_item_fields_without_refs(
-    monkeypatch, response_model, item_sentence, extra_clauses
+    monkeypatch, response_model, schema_block, item_sentence, extra_clauses
 ):
     client, calls = _client('{"x": 1}', monkeypatch=monkeypatch)
 
     _generate(client, [Message(role="user", content="Extract.")], response_model, 2048)
 
     sent = calls[0]["messages"][-1]["content"]
-    # the whole appended tail: graphiti's own block, the item fields, the shape
+    # the whole appended tail: the schema block this prompt class gets (graphiti's
+    # verbatim dump for extraction, the plain statement for the echo-prone dedupe
+    # models), the item fields, the shape clauses. Asserted exactly, so the
+    # rejected #24 broad swap — and any regression back to the raw dump on
+    # NodeResolutions, which the model answers with the schema itself — fails
+    # here.
     assert sent == (
         "Extract."
         + _SCHEMA_REMINDER
-        + json.dumps(response_model.model_json_schema())
+        + schema_block
         + "\n\n"
         + item_sentence
         + "\n\n"
@@ -391,6 +428,10 @@ def test_schema_reminder_restates_required_item_fields_without_refs(
     # the added sentence is plain language, not a second $ref chain
     assert "$ref" not in item_sentence
     assert "$defs" not in item_sentence
+    # and a dedupe prompt never carries a raw dump
+    if response_model is NodeResolutions:
+        assert "$defs" not in sent
+        assert "$ref" not in sent
 
 
 def test_element_requirements_absent_without_array_items(monkeypatch):
@@ -413,6 +454,160 @@ def test_element_requirements_absent_without_array_items(monkeypatch):
     assert "must contain" not in sent
     assert _TERSE_FACT_SENTENCE not in sent
     assert _TIMESTAMP_SENTENCE not in sent
+
+# ---------------------------------------------------------------------------
+# The dedupe split — plain English for the models that answer with the SCHEMA
+# ---------------------------------------------------------------------------
+#
+# Measured on both models, in --mode full (the six real chunks, fresh graph ids,
+# Ollama stopped):
+#
+#   LFM3-1.7B-MLX-4bit  NodeResolutions  3 of 5 calls answered {"$defs":
+#                       {"NodeDuplicate": …}} — a wrong-keys skip
+#                       (scratch/final_full.log). With the statement, 0 of 4
+#                       calls echoed it (scratch/check24_1p7b_full_a.log): real
+#                       resolution data with the schema's own key names.
+#   Ornith-1.5-9B-MLX-6bit  EdgeDuplicate  5 of 5 calls answered {"properties":
+#                       {"duplicate_facts": []}} (scratch/check24_9b_full_b.log)
+#                       while every EXTRACTION prompt it answered was correct,
+#                       including the ExtractedEdges the 1.7B cannot fit in M1's
+#                       clamp.
+#
+# Both are DEDUPE prompts: the wanted answer is a short list of ids, and the
+# dump is a plausible short answer, so the model hands it back. No EXTRACTION
+# prompt has ever echoed its schema on any measured model, and those prompts
+# need the dump — it is their only compact exemplar, and losing it is what made
+# the plain-statement-everywhere variant (#24, MODEL_EVAL §7c) fail. So the seam
+# splits by response model: statement for NodeResolutions/EdgeDuplicate, graphiti's
+# verbatim dump for everything else.
+
+
+@pytest.mark.parametrize(
+    "response_model, statement",
+    [
+        (NodeResolutions, _RESOLUTIONS_PLAIN_STATEMENT),
+        (EdgeDuplicate, _EDGE_DEDUPE_PLAIN_STATEMENT),
+    ],
+)
+def test_raw_schema_dump_is_dropped_for_an_echo_prone_model(
+    monkeypatch, response_model, statement
+):
+    # The whole appended tail, asserted exactly: no $defs, no $ref, and the
+    # plain statement followed by the item sentence and the shape clauses.
+    client, calls = _client('{"x": 1}', monkeypatch=monkeypatch)
+
+    _generate(client, [Message(role="user", content="Extract.")], response_model, 2048)
+
+    sent = calls[0]["messages"][-1]["content"]
+    assert _SCHEMA_REMINDER + statement in sent
+    assert "$defs" not in sent
+    assert "$ref" not in sent
+    assert sent.count(_SCHEMA_REMINDER) == 1
+    # the required item fields are still restated for a model that has object
+    # items (EdgeDuplicate's are plain integers: nothing to restate, exactly as
+    # test_element_requirements_absent_without_array_items pins)
+    if response_model is NodeResolutions:
+        assert "Omit any item that lacks one of its required fields." in sent
+
+
+@pytest.mark.parametrize(
+    "response_model",
+    [ExtractedEntities, ExtractedEdges, SummarizedEntities],
+)
+def test_extraction_prompts_keep_graphitis_verbatim_dump(response_model, monkeypatch):
+    # The complement, pinned just as hard: the extraction prompts are the ones
+    # the 1.7B answers correctly only with the dump in front of them (12/12 node
+    # calls at a 7.9 s mean), so reintroducing the rejected #24 broad swap fails
+    # here too.
+    client, calls = _client('{"x": 1}', monkeypatch=monkeypatch)
+
+    _generate(client, [Message(role="user", content="Extract.")], response_model, 2048)
+
+    sent = calls[0]["messages"][-1]["content"]
+    assert _SCHEMA_REMINDER + json.dumps(response_model.model_json_schema()) in sent
+    assert "An object with the" not in sent
+
+
+def test_plain_statement_is_read_from_the_schema_not_hand_copied():
+    # A response model graphiti does not define: the statement must still name
+    # ITS key and ITS item fields, which only a schema walk can know.
+    class _Thing(BaseModel):
+        label: str
+        weight: int
+
+    class _ThingsResponse(BaseModel):
+        things: List[_Thing]
+
+    schema = _ThingsResponse.model_json_schema()
+    statement = graphiti_zep._plain_schema_statement(_ThingsResponse, schema)
+
+    assert (
+        statement
+        == 'An object with the required key "things", holding an array of objects.'
+    )
+    assert (
+        'every item of "things" must contain label (string), weight (integer). '
+        "Omit any item that lacks one of its required fields."
+        in graphiti_zep._element_requirements(_ThingsResponse)
+    )
+
+
+def test_a_flat_schema_dump_is_kept_verbatim(monkeypatch):
+    # A schema that is small and carries no $defs/$ref, and is not echo-prone:
+    # graphiti's own block is reproduced byte for byte (the plain statement is
+    # not added on top of it).
+    class _FlatResponse(BaseModel):
+        answer: str
+
+    client, calls = _client('{"answer": "x"}', monkeypatch=monkeypatch)
+
+    _generate(client, [Message(role="user", content="Answer.")], _FlatResponse, 2048)
+
+    sent = calls[0]["messages"][-1]["content"]
+    assert sent.count(_SCHEMA_REMINDER) == 1
+    assert "An object with the" not in sent
+    assert sent.endswith(
+        _SCHEMA_REMINDER
+        + json.dumps(_FlatResponse.model_json_schema())
+        + "\n\n"
+        + _SHAPE_SENTENCE
+    )
+
+
+def test_plain_statement_is_appended_once_across_retries(monkeypatch):
+    client, _calls = _client('{"entity_resolutions": []}', monkeypatch=monkeypatch)
+    messages = [Message(role="user", content="Resolve duplicates.")]
+
+    _generate(client, messages, NodeResolutions, 2048)
+    _generate(client, messages, NodeResolutions, 2048)
+
+    content = messages[-1].content
+    assert content.count(_RESOLUTIONS_PLAIN_STATEMENT) == 1
+    assert content.count(_SHAPE_SENTENCE) == 1
+    assert "$defs" not in content
+
+
+def test_json_object_mode_keeps_graphitis_block_and_adds_only_the_tail(monkeypatch):
+    # In json_object mode graphiti itself appends its raw dump; the seam must
+    # recognise that block and append ONLY its own clauses, never a second
+    # statement of the schema.
+    client, calls = _client(
+        '{"extracted_entities": []}', mode="json_object", monkeypatch=monkeypatch
+    )
+    messages = [
+        Message(role="system", content="You are an entity extraction specialist."),
+        Message(role="user", content="Extract entities."),
+    ]
+
+    asyncio.run(client.generate_response(messages, ExtractedEntities, 2048))
+
+    sent = calls[0]["messages"][-1]["content"]
+    assert sent.count(_SCHEMA_REMINDER) == 1
+    assert _ENTITIES_PLAIN_STATEMENT not in sent
+    assert sent.endswith(
+        _ITEM_REQUIREMENTS_SENTENCE + "\n\n" + _SHAPE_SENTENCE
+    )
+
 
 # ---------------------------------------------------------------------------
 # Prompt shape — the response must be compact and commentary-free (final fix)
