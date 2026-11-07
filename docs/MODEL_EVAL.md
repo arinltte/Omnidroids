@@ -852,6 +852,66 @@ rest if the owner prefers the full ~11.7 GB reclaimed.** Deletion (if any) is an
 follow-up action — it is **not** performed here and `models/registry.json` `roles` are
 unchanged.
 
+#### 10. Closing #22 on the decided stack (issue #47) — 2026-11-07, `small` 5/6 with one `ExtractedEdges` clamp skip
+
+Branch `fix/47-close-22-on-decided-stack` (off `phase6-integration` @ `dad7acb`; two
+commits: the `fix/22-hybrid-dedupe-statement` split cherry-picked as `79c4de6`, then this
+docs-only commit). The run below measures the **decided stack** — Graphiti + embedded
+Kuzu + arctic-embed-s 384-d, `LFM3-1.7B-MLX-4bit` on the `small` role (choice B, #45) —
+**with the hybrid dedupe split landed** (§7c item 4), i.e. the split's status resolves
+**merged** on the kept backend (Graphiti, ADR 0001). `roles`, `.env` and M1/M2/M3
+untouched.
+
+Config in force identical to every §7c run: `json_schema` structured output,
+`GRAPHITI_LLM_MAX_TOKENS=4096` (M1 untouched), `GRAPHITI_MAX_COROUTINES=2`, arctic-embed-s
+384-d; a **fresh graph id** `check47_1p7b_full_1794091410`; Ollama asserted down before AND
+after by the harness (`independence proven` both); `GRAPHITI_LLM_MODEL=LFM3-1.7B-MLX-4bit`
+(survives `load_dotenv`). `scratch/check47_run.sh` ran beside `scratch/rss_sampler.py`
+(SIGTERM-only stall guard, no stall). Full-mode row of record — `scratch/check47_full.log`:
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| full ×1 | `check47_full.log` | `check47_1p7b_full_1794091410` | **5/6** | 1 | malformed-json 1 | 1852.4 | 308.7 s | 12.3 | 180→1712 MB | 1729 MB |
+
+Per-chunk detail (same log; `--mode full --repeat 1` on the six sha256-verified chunks):
+
+| idx | status | chars | s | nodes | edges | calls | class / cause |
+|---|---|---|---|---|---|---|---|
+| 0 | ok | 376 | 25.0 | 7 | 7 | 3 | — |
+| 1 | **skip** | 368 | 73.7 | — | — | 3 | malformed-json — `ExtractedEdges` `finish_reason=length` at M1's 4096 clamp (truncated body → `Expecting property name enclosed in double quotes: line 294 column 3`) |
+| 2 | ok | 213 | 279.9 | 7 | 8 | 11 | — |
+| 3 | ok | 390 | 448.3 | 13 | 18 | 22 | — |
+| 4 | ok | 129 | 596.9 | 14 | 30 | 19 | — |
+| 5 | ok | 390 | 428.6 | 14 | 32 | 16 | — |
+
+The five succeeding chunks land **55 nodes / 95 edges**. Exactly **one** `ExtractedEdges`
+response hit `finish_reason=length` (M1's 4096-token clamp) in the whole run, and it
+aborted exactly one chunk (idx=1); M2 fault isolation kept the other five intact and M3 was
+not salvaged.
+**Wall time ≈ 31.5 min** (22:43:30–23:15:02 UTC); peak run.py RSS **1729 MB** (sampler),
+backend 180→1712 MB — inside the 11 GB budget, co-resident with the 9B with headroom.
+
+**Verdict — still not 0 skips, so #22 closes with the recorded rate and the failing class
+named.** Full mode is **5/6 ok / 1 skip (16.7%)** against the §30 bar of 6/6 with 0 skips
+(the 9B's `check24_9b_full_c.log` reference, §7c item 4). The not-0-skips acceptance branch
+therefore applies: #22 closes with the measured rate and the class — `ExtractedEdges`
+edges running past **M1's 4096-token clamp** → truncated JSON (`malformed-json`) — as an
+**open item**; §12's acceptance run (#23) proceeds on that basis per the owner's **choice
+B** (Graph Build stays on `small`), and the clamp stays the recorded open item carried by
+#45 (no 4-bit candidate cleared it; #46's 8-bit wave is pending). A visible skip beats a
+silently wrong graph.
+
+**Baseline comparison (§7c item 4).** The prior in-tree reference on the split,
+`scratch/check24_1p7b_full_c.log`, measured **3/6** (3 skips, all the same `ExtractedEdges`
+clamp class; mean 142.2 s over the six — its skipped chunks are fast because they abort
+early on the clamp). This run is **5/6**, one skip: the **dedupe-echo class is already gone
+on the split** (0 echoes on both — the class the split removed on the 1.7B), so the
+surviving skip is purely the `ExtractedEdges` clamp, i.e. the **same class mix, one fewer
+chunk in it**. The 3-vs-1 skip delta is generation variance, not a new class: temperature
+0.0 is dropped by the MLX runner (the harness's `--repeat` caveat), so how many of the six
+chunks' `ExtractedEdges` bodies run past the clamp is not perfectly reproducible run to
+run — the point is the class mix, and it is unchanged.
+
 ## 8. Reproduce
 
 ```bash
