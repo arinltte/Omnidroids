@@ -646,6 +646,116 @@ unchanged.** With candidates 1 and 3 at 0/6 and candidate 2 at 3-5/6, three of t
 — no 4-bit candidate has reached 6/6, so the gap is recorded for #45 rather than
 downgraded silently.
 
+#### 8. Small-model candidate 4 — SmolLM3-3B-4bit (issue #44) — **OUT**
+
+Branch `model/44-smollm3-3b-4bit` (off `phase6-integration` @ `0f4e655`; the docs-only
+commit in this ticket). Weights `mlx-community/SmolLM3-3B-4bit` downloaded once (log
+`scratch/check44_download.log`) — **1,747,380,812 B / 1.63 GB**, 10 files, ~49 s, clean —
+to repo-root `models/SmolLM3-3B-4bit` via `--local-dir ../models/…` from `backend/`
+(`HF_HOME=<repo>/.cache/hf`, `~/.cache/huggingface` unchanged at 7 944 384 KB before and
+after; the repo cache gained only a 4 KB refs snapshot), candidate 1/2/3's exact method —
+the literal `--local-dir models/…` from `backend/` would have written a `backend/models/`
+tree the app cannot resolve (`MODELS_DIR` and every registry `path` are repo-root).
+This is a plain **text causal LM** (`SmolLM3ForCausalLM`, no vision/audio towers, no
+`text_config`), 4-bit gs64, hidden 2048 / 36 layers / 16 heads / 4 KV heads / vocab
+128 256 / max_pos 65 536, NoPE pattern `1,1,1,0` (`no_rope_layer_interval=4`), bf16 base,
+index metadata 3 075 098 624 parameters. Loaded through the app's own runner path
+(`app.models.runtime.MLXRunner.load`, what `ModelManager` serves the seam) offline
+(`HF_HUB_OFFLINE=1`): `config.model_type=smollm3`, rss 2300 MB, unload OK — no
+generation, this ticket's load check only. Registered in the git-ignored
+`models/registry.json` (backend `mlx`, path `/Users/…/Omnidroids/models/SmolLM3-3B-4bit`,
+`size_bytes` 1 747 380 812, `added_at` 2026-11-07T21:03:14Z) with **no role assigned** —
+`roles.small` stays `LFM3-1.7B-MLX-4bit`, `roles.big` stays `Ornith-1.5-9B-MLX-6bit`.
+
+Config in force identical to every §7c run: `json_schema` structured output,
+`GRAPHITI_LLM_MAX_TOKENS=4096`, `GRAPHITI_MAX_COROUTINES=2`, arctic-embed-s 384-d; a
+**fresh graph id per run**; Ollama stopped and asserted down before AND after by the
+harness; `GRAPHITI_LLM_MODEL=SmolLM3-3B-4bit` (survives `load_dotenv`; a shell
+`LLM_MODEL_NAME` would be clobbered by `.env`). *LLM calls/chunk* is the harness's own
+per-chunk `calls=` column (its additive counter on the `chat.completions.create` wrapper),
+and peak RSS is the `scratch/rss_sampler.py` thread `scratch/check44_run.sh` runs beside
+the harness. Every launch was from `backend/` on a fresh graph id, one model resident,
+SIGTERM-only (`harness_rc=1 blocked=0`, no leftover `run.py` in any run).
+
+Row of record:
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check44_node.log` | `check44_smollm3_1794085764` | **6/12** | 6 | wrong-keys 5, malformed-json 1 | 664.5 | 55.4 s | 1.1 | 180→2412 MB | 2412 MB |
+| full ×1 | `check44_full.log` | `check44_smollm3_1794087026` | **2/6** | 4 | wrong-keys 3, other-validation 1 | 359.5 | 59.9 s | 2.3 | 180→2427 MB | 2460 MB |
+
+The node run's two repeats disagree, so 6/12 is an average over both: repeat 1 passed
+2/6 (chunks 0, 5; 65.5 s/chunk), repeat 2 passed 4/6 (chunks 2-5; 45.3 s/chunk) — the
+same chunk can pass in one repeat and echo the schema in the other. Its passing calls
+return 3-13 entities (against the 1.7B's steady 5-14), but five of the twelve calls emit
+nothing but the inlined schema and a sixth is a body truncated at the clamp.
+
+Reproducibility — full mode run again from `backend/` on a fresh graph id. Same ok count,
+different chunks, which is what the variance looks like for #45:
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| full ×1 | `check44_full_rep1.log` | `check44_smollm3_1794087679` | 2/6 | 4 | wrong-keys 3, malformed-json 1 | 580.1 | 96.7 s | 4.7 | 180→2411 MB | 2411 MB |
+
+**Failure classes, per chunk.** SmolLM3 does not fail at one place: it fails at whatever
+prompt it is on, and the failing prompt moves between runs, so the class is named per
+chunk (payload keys below are the harness's `keys=` column, printed on failure).
+
+| run | failing chunk | response model | class / shape |
+|---|---|---|---|
+| node ×2 (both repeats) | 2, 3, 4 (varying) | `ExtractedEntities` | **wrong-keys schema echo**: payload keys `['$defs']` — the model hands back graphiti's inlined schema object itself (`{"$defs": {"ExtractedEntity": …}, "properties": …, "required": …, "title": …, "type": …}`), so `extracted_entities Field required`. Same prompt and class candidates 1 and 3 died on. |
+| node ×2 (repeat 1) | 1 | `ExtractedEntities` | **M3 truncation fail-fast** (`calls=2`): first call a schema echo, then a real `{"extracted_entities":[…]` body truncated at the 4096 clamp (`finish_reason=length`, `Unterminated string … line 1 column 16427`) → `_TruncatedJSONError`, not retried. |
+| full (row of record) | 3 | `ExtractedEntities` | **other-validation**: `extracted_entities Input should be a valid list` — the schema-echo prefix followed by a non-list `extracted_entities` in the same object. |
+| full (row of record) | 4 | `ExtractedEdges` | **wrong-keys** `edges Field required`, payload keys `['$defs']` (an `Edge` schema echo). That chunk's `ExtractedEntities` call had already returned a schema-valid but **off-document** list — `Dr. Amara Osei`, `AAN`, `migraine study`, `CGRP combination protocol` — for a chunk whose text is about Dr. Ada Chen and the Wuhan Institute: fabricated entities, a class no earlier candidate showed. |
+| full ×1 | 0 | `SummarizedEntities` | **M3 truncation fail-fast**: `finish_reason=length` at the 4096 clamp → `_TruncatedJSONError`, after `EdgeTimestamps` had answered with its own schema twice. |
+| full ×1 | 1 | `SummarizedEntities` | **wrong-keys by rename**: `{"summarizedEntities": […]}` — real values under a near-miss key, so `summaries Field required` (twice, `calls=5`). |
+| full ×1 | 4 | `EdgeDuplicate` | **half-echo** of the kind candidate 2 also showed: `{"properties": {"duplicate_facts": …}}` — schema one level too deep, so `duplicate_facts Field required`. |
+| full ×1 | 5 | `ExtractedEntities` | **wrong-keys** schema echo (`$defs`), `finish_reason=length`. |
+
+Two things the ok-count hides. (a) *The raw-body head is not the class.* Four of the
+twelve node calls (chunks 0 and 5 of repeat 1, chunks 4 and 5 of repeat 2) and two
+full-mode calls (chunk 2 of the row-of-record run, chunk 3 of `_rep1`) PASSED with a body
+whose first 120 chars are the `$defs` schema echo: the probe
+(`scratch/check44_shape_probe.py`, one call, not part of the row of record) shows why —
+the payload is `{'$defs': …, 'extracted_entities': […]}`, both keys present, and pydantic
+ignores the extra `$defs`. So this model **prepends the schema** and then answers, which is
+why a body that looks like candidate 1/3's fatal echo still validates. The same probe also
+returned a closed 1 249-char body with `finish_reason=length`, so a `length` finish is not
+by itself the failure — it is terminal only when the body does not parse. (b) *The passes
+are thin.* The row-of-record full run passed chunks 2 and
+5 carrying 13 nodes / 5 edges in total, and `_rep1` passed chunks 2 and 3 with 9 nodes /
+4 edges — real content, but a fraction of the 1.7B's 33 nodes / 23 edges across its three
+passing chunks (`check24_1p7b_full_c.log`) and only a little more than MiniCPM5's 6 nodes
+/ 3 edges over five passing chunks. Chunk 5 of the row-of-record run also surfaced a
+`SummarizedEntities` answer of `"Not enough info in messages to summarize"` (schema-
+valid, content-free) after one malformed attempt, a `NodeResolutions` body with two
+entries sharing `id=0`, and `ExtractedEdges` bodies whose `relation_type` reads `J OINT`
+and whose entity names are bare (`bureau`) — the graph that does land is loose.
+
+**Verdict — FAIL, does not reach the bar.** Full mode is **2/6 with 4 skips** in both the
+row-of-record and the reproduction, against the 6/6-0-skip bar. Against candidates 1-3 it
+is **better than candidates 1 and 3 on every axis** (Qwen3.5-4B and gemma-4-e2b were both
+0/12 node and 0/6 full, dying on this same entity-prompt echo) and **worse than candidate
+2**: MiniCPM5-2B cleared node 12/12 and reached 3-5/6 full, where SmolLM3 is 6/12 node and
+2/6 full. Like candidate 2 it reaches `ExtractedEdges`, `NodeResolutions`, `EdgeDuplicate`
+and `SummarizedEntities` and lands a real (if small) graph in full mode — 13 nodes / 5
+edges on the row-of-record run, more graph than MiniCPM5's best run (6 nodes / 3 edges
+over five passing chunks) — but the failing prompt moves between runs and the ok
+count never reaches 6/6. Against the 1.7B candidate-0 baseline (node 12/12 @ 7.9 s; full
+3/6 @ 72.4 s) it is worse on both quality axes and **far slower per call**: node mean
+55.4 s and full mean 59.9 s (the slowest of the wave — Qwen3.5-4B 14.0 s, MiniCPM5-2B
+4.0 s, gemma-4-e2b 6.8 s), because its answers carry the inlined schema plus the array and
+its truncated bodies run to the 4096 cap; only half the 1.7B's node chunks complete
+(6/12 vs 12/12) at ~7× the per-call wall time (55.4 s vs 7.9 s), and full mode completes
+one fewer chunk (2/6 vs 3/6) despite a lower mean (59.9 s vs 72.4 s).
+Resident RSS ~2.4 GB (sampler peak 2 411-2 460 MB across runs) sits between MiniCPM5-2B's
+2.03 GB and Qwen3.5-4B's ~3.8 GB, far inside the 11 GB budget; memory is moot below the
+bar.
+**Candidate 4 is OUT for #45; `small` role unchanged, and the gap is recorded rather than
+downgraded silently.** All four 4-bit candidates have now measured below the bar
+(0/6, 3-5/6, 0/6, 2/6), so per spec #30 the 8-bit probes are the conditional follow-up
+(#46) rather than a silent downgrade to a model that fails the gate.
+
 ## 8. Reproduce
 
 ```bash
