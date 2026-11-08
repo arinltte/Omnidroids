@@ -19,6 +19,7 @@ from datetime import datetime
 from enum import Enum
 
 from ..config import Config
+from ..models.assignment import resolve_report_model
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from ..utils.locale import get_language_instruction, t
@@ -909,8 +910,11 @@ class ReportAgent:
         self.simulation_id = simulation_id
         self.simulation_requirement = simulation_requirement
         
-        self.llm = llm_client or LLMClient()
-        self.zep_tools = zep_tools or ZepToolsService()
+        self.llm = llm_client or LLMClient(model=resolve_report_model())
+        # The agent's own tools (InsightForge sub-queries, interviews, summaries)
+        # are part of the same step, so they share the resolved model instead of
+        # silently dropping back to LLM_MODEL_NAME (the small role).
+        self.zep_tools = zep_tools or ZepToolsService(llm_client=self.llm)
         
         # 工具定义
         self.tools = self._define_tools()

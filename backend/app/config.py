@@ -28,7 +28,26 @@ class Config:
     # 默认指向本地 /v1 转发端点（见 app/api/llm_proxy.py）
     LLM_API_KEY = os.environ.get('LLM_API_KEY')
     LLM_BASE_URL = os.environ.get('LLM_BASE_URL', 'http://localhost:5001/v1')
-    LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'lfm3:latest')
+    # Ollama (B5/#14) tagged its models ("lfm3:latest"); this repo runs MLX/GGUF
+    # weights identified by directory name, so the default is the 'small' role's
+    # model id. The value is a NAME only: the /v1 proxy maps it to whatever model
+    # the Model Manager has assigned to that role (see app/models/assignment.py),
+    # and an unknown name falls through to that same role.
+    LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'LFM3-1.7B-MLX-4bit')
+
+    # ---- Model for steps 4-5 (Report Generation / Deep Interaction) -----
+    # Owner decision (issue #22): steps 1-3 (Graph Build, Env Setup, Run
+    # Simulation) keep using LLM_MODEL_NAME above (the /v1 proxy maps that name to
+    # the 'small' role); steps 4-5 -- both served by ReportAgent -- use the 'big'
+    # role instead (see app/models/assignment.py).
+    # Only the ROLE is stored here, never a model name: it is re-read from the
+    # Model Manager's models/registry.json on every call, so the owner reassigns
+    # the role (or points the override below at another 9B-class model) with no
+    # code change. An unassigned role fails loudly -- never a silent fallback.
+    REPORT_LLM_ROLE = (os.environ.get('REPORT_LLM_ROLE', 'big') or 'big').strip().lower()
+    # Optional explicit model name for those steps (must be installed in the Model
+    # Manager). Empty = use the role assignment above; when set, it wins.
+    REPORT_LLM_MODEL_NAME = (os.environ.get('REPORT_LLM_MODEL_NAME', '') or '').strip()
 
     # ----- 本地 LLM 控制（全部流量经 /v1 转发到本地模型运行时）-----
     # 思考模式：'none'=关闭（快、稳定）| 'high'=开启（更慢、质量更高）| 空=模型默认(默认开启更强推理)
