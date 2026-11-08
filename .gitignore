@@ -27,3 +27,6 @@ models/*
 
 # Internal session notes (never published)
 NEXT_SESSION_PROMPT*
+
+# OASIS runtime logging (module-level setup writes ./log on import; test-run byproduct)
+log/
