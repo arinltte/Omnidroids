@@ -445,24 +445,30 @@ def _schema_reminder(response_model) -> str:
     return _GRAPHITI_SCHEMA_REMINDER + statement
 
 
-_TYPE_PHRASES = {
-    "string": "a string",
-    "integer": "an integer",
-    "number": "a number",
-    "boolean": "a boolean",
-    "object": "an object",
-    "array": "an array",
-    "null": "null",
+# The JSON-type vocabulary in ONE table: (the phrase for a single value,
+# the phrase for an array's items). Everything that spells a JSON type in prose
+# reads this, so a graphiti upgrade that adds a kind is a one-line change here
+# rather than a search through three parallel dicts. The KEY is the type name
+# itself, which is the word ``_json_type_name`` reports — that function needed
+# no table of its own, only these keys.
+_JSON_TYPE_VOCABULARY = {
+    "string": ("a string", "strings"),
+    "integer": ("an integer", "integers"),
+    "number": ("a number", "numbers"),
+    "boolean": ("a boolean", "booleans"),
+    "object": ("an object", "objects"),
+    "array": ("an array", "arrays"),
+    # null has no plural: an array of nulls reads better as the generic
+    # fallback ("values"), which is what a missing plural has always returned.
+    "null": ("null", None),
 }
 
-_TYPE_PLURALS = {
-    "string": "strings",
-    "integer": "integers",
-    "number": "numbers",
-    "boolean": "booleans",
-    "object": "objects",
-    "array": "arrays",
-}
+
+def _singular_type_phrase(kind) -> str:
+    """The plain-English phrase for one value of ``kind`` (``"an integer"``)."""
+
+    entry = _JSON_TYPE_VOCABULARY.get(kind) if isinstance(kind, str) else None
+    return entry[0] if entry else "a value"
 
 
 def _join_words(words) -> str:
@@ -480,9 +486,8 @@ def _plural_type_phrase(fragment) -> str:
     """The item type of an array in plain English (``"integers"``)."""
 
     kind = fragment.get("type") if isinstance(fragment, dict) else None
-    if not isinstance(kind, str):
-        return "values"
-    return _TYPE_PLURALS.get(kind, "values")
+    entry = _JSON_TYPE_VOCABULARY.get(kind) if isinstance(kind, str) else None
+    return entry[1] if entry and entry[1] else "values"
 
 
 def _value_phrase(info, item_fragment) -> str:
@@ -495,9 +500,7 @@ def _value_phrase(info, item_fragment) -> str:
         if isinstance(item_fragment, dict) and item_fragment.get("properties"):
             return "an array of objects"
         return "an array of " + _plural_type_phrase(item_fragment)
-    if isinstance(kind, str) and kind in _TYPE_PHRASES:
-        return _TYPE_PHRASES[kind]
-    return "a value"
+    return _singular_type_phrase(kind)
 
 
 def _plain_schema_statement(response_model, schema) -> str:
@@ -561,7 +564,12 @@ def _schema_parts(response_model):
 
 
 def _json_type_name(fragment) -> str:
-    """A short JSON type word for a schema fragment (``$ref``/``anyOf`` → value)."""
+    """A short JSON type word for a schema fragment (``$ref``/``anyOf`` → value).
+
+    The word is the JSON type as the schema spells it — the key of
+    ``_JSON_TYPE_VOCABULARY``, which the sentence builders expand into prose —
+    so an unrecognised kind reports itself instead of becoming ``value``.
+    """
 
     if not isinstance(fragment, dict):
         return "value"
