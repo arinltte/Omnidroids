@@ -295,12 +295,19 @@ def test_services_reach_the_graph_through_the_seam_client_names():
     )
 
 
-def test_shipped_graph_backend_resolves_to_the_decided_seam():
+def test_shipped_graph_backend_resolves_to_the_decided_seam(monkeypatch):
     """The shipped ``GRAPH_BACKEND=graphiti`` selection resolves to the adapter.
 
     This is the durable half of "the seam is the shipped default": the value the
     repo ships (``.env.example``, and the environment ``docs/GRAPH_BAKEOFF.md``
     records) must keep selecting the local Graphiti client that ADR 0001 kept.
+
+    The two halves are deliberately separated. The *recorded* half reads
+    ``.env.example`` — a file in the repo, so it is the same on a fresh clone.
+    The *resolution* half exercises ``Config``, whose default is ``zep`` (a real
+    deployment only overrides it through a local, git-ignored ``.env``), so the
+    decision is pinned explicitly instead of inheriting whatever ``.env`` the
+    machine happens to carry.
     """
 
     from app.config import Config
@@ -316,6 +323,8 @@ def test_shipped_graph_backend_resolves_to_the_decided_seam():
         "the shipped graph backend is not the decided one; ADR 0001 keeps "
         "Graphiti + embedded Kuzu: " + repr(shipped)
     )
+
+    monkeypatch.setattr(Config, "GRAPH_BACKEND", "graphiti")
 
     zep.clear_zep_client_cache()
     client = zep.get_zep_client()
