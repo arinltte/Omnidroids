@@ -638,6 +638,8 @@
     "sectionNoPrefix": "章节 {title} 未检测到 'Final Answer:' 前缀，直接采纳LLM输出作为最终内容（工具调用: {count}次）",
     "sectionMaxIter": "章节 {title} 达到最大迭代次数，强制生成",
     "sectionForceFailed": "章节 {title} 强制收尾时 LLM 返回 None，使用默认错误提示",
+    "sectionBodyArtefact": "章节 {title} 正文被拒绝: {reason}（#53 章节正文卫生检查）",
+    "sectionRegenerated": "章节 {title} 在被拒绝后重新生成成功（#53）",
     "sectionGenFailedContent": "（本章节生成失败：LLM 返回空响应，请稍后重试）",
     "outlineSavedToFile": "大纲已保存到文件: {reportId}/outline.json",
     "sectionSaved": "章节已保存: {reportId}/section_{sectionNum}.md",

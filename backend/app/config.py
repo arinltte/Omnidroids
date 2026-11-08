@@ -48,6 +48,13 @@ class Config:
     # Optional explicit model name for those steps (must be installed in the Model
     # Manager). Empty = use the role assignment above; when set, it wins.
     REPORT_LLM_MODEL_NAME = (os.environ.get('REPORT_LLM_MODEL_NAME', '') or '').strip()
+    # Word band for the assembled step-4 report (250-350). The band lived only in
+    # docs/ACCEPTANCE_12.md and the spec, so report #49 shipped at 357/368 words
+    # unnoticed; the check that reads these knobs now fails the report loudly,
+    # naming the measured count and the sections that broke the band. Lowered or
+    # raised here (or in .env) with no code change.
+    REPORT_WORD_COUNT_MIN = int(os.environ.get('REPORT_WORD_COUNT_MIN', '250'))
+    REPORT_WORD_COUNT_MAX = int(os.environ.get('REPORT_WORD_COUNT_MAX', '350'))
 
     # ----- 本地 LLM 控制（全部流量经 /v1 转发到本地模型运行时）-----
     # 思考模式：'none'=关闭（快、稳定）| 'high'=开启（更慢、质量更高）| 空=模型默认(默认开启更强推理)
