@@ -88,6 +88,20 @@ def _generation_spans(events) -> list[tuple[float, float]]:
     return sorted(spans)
 
 
+def _dedicated_worker_threads(mlx):
+    """The runner's live worker threads, observed through their public name.
+
+    ``MLXRunner`` builds its one-worker executor with
+    ``thread_name_prefix=f"mlx-{self.name}"``, so the dedicated thread shows up
+    in ``threading.enumerate()`` — the same fact the executor's private
+    ``_threads`` carried, without reaching into a private attribute of a
+    stdlib object.
+    """
+
+    prefix = f"mlx-{mlx.name}"
+    return [t for t in threading.enumerate() if t.name.startswith(prefix)]
+
+
 def test_generate_runs_on_the_thread_that_loaded_the_model(runner):
     mlx, events = runner
 
@@ -124,13 +138,13 @@ def test_unload_releases_the_dedicated_thread(runner):
     mlx, events = runner
 
     asyncio.run(mlx.load())
-    executor = mlx._executor
-    assert executor is not None
+    assert _dedicated_worker_threads(mlx), (
+        "load must run its work on one dedicated worker thread"
+    )
 
     asyncio.run(mlx.unload())
 
-    assert mlx._executor is None
-    threads = getattr(executor, "_threads", ()) or ()
-    assert threads and all(not t.is_alive() for t in threads), (
-        "the dedicated worker thread must be joined on unload"
+    assert not _dedicated_worker_threads(mlx), (
+        "the dedicated worker thread must be joined on unload; it is still "
+        "alive under its mlx-<model> name"
     )
