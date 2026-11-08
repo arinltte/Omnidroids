@@ -1037,6 +1037,23 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     )
 
 
+def _format_action_summary(per_round_actions: List[int]) -> str:
+    """格式化一轮模拟的动作摘要行
+    
+    每轮下发的Agent动作数（跳过的轮记0）汇总成一行显式报告:
+    总动作数 + 有动作/被跳过的轮数。一次零动作的空转运行必须自己说出来，
+    不能再凭"模拟循环完成"蒙混过关 (#52)。
+    """
+    total_rounds = len(per_round_actions)
+    total_actions = sum(per_round_actions)
+    rounds_with_actions = sum(1 for count in per_round_actions if count > 0)
+    rounds_skipped = total_rounds - rounds_with_actions
+    
+    return (f"  - 总动作数: {total_actions} "
+            f"(有动作轮数: {rounds_with_actions}/{total_rounds}, "
+            f"跳过轮数: {rounds_skipped})")
+
+
 def get_active_agents_for_round(
     env,
     config: Dict[str, Any],
@@ -1060,7 +1077,9 @@ def get_active_agents_for_round(
     else:
         multiplier = 1.0
     
-    target_count = int(random.uniform(base_min, base_max) * multiplier)
+    # 时段乘数只"减少"活跃度，不"关闭"本轮: off_peak_activity_multiplier=0.05 时
+    # int(uniform(5, 20) * 0.05) 会取整成 0，整轮零动作是一次空转，不是安静运行 (#52)
+    target_count = max(1, int(random.uniform(base_min, base_max) * multiplier))
     
     candidates = []
     for cfg in agent_configs:
@@ -1073,6 +1092,11 @@ def get_active_agents_for_round(
         
         if random.random() < activity_level:
             candidates.append(agent_id)
+    
+    # 生成的 active_hours 全都在 07:00-23:59 内，而模拟时钟从 0 点开始，凌晨几轮
+    # 的候选池必然为空: 此时回退到完整 Agent 池，而不是静默地一个人都不选 (#52)
+    if not candidates:
+        candidates = [cfg.get("agent_id", 0) for cfg in agent_configs]
     
     selected_ids = random.sample(
         candidates, 
@@ -1224,6 +1248,10 @@ async def run_twitter_simulation(
             log_info(f"轮数已截断: {original_rounds} -> {total_rounds} (max_rounds={max_rounds})")
     
     start_time = datetime.now()
+    # 每轮下发的Agent动作数（跳过的轮记0），循环结束后汇总成运行摘要 (#52)
+    # 记"下发"数: 与邻近的总动作数（数据库实际记录的动作）分开统计，两者背离本身
+    # 就是需要看见的信号
+    round_action_counts = []
     
     for round_num in range(total_rounds):
         # 检查是否收到退出信号
@@ -1248,10 +1276,13 @@ async def run_twitter_simulation(
             # 没有活跃agent时也记录round结束（actions_count=0）
             if action_logger:
                 action_logger.log_round_end(round_num + 1, 0)
+            # 记 0，而不是静默 continue: 摘要必须显式暴露这一轮是空转 (#52)
+            round_action_counts.append(0)
             continue
         
         actions = {agent: LLMAction() for _, agent in active_agents}
         await result.env.step(actions)
+        round_action_counts.append(len(actions))
         
         # 从数据库获取实际执行的动作并记录
         actual_actions, last_rowid = fetch_new_actions_from_db(
@@ -1286,6 +1317,8 @@ async def run_twitter_simulation(
     result.total_actions = total_actions
     elapsed = (datetime.now() - start_time).total_seconds()
     log_info(f"模拟循环完成! 耗时: {elapsed:.1f}秒, 总动作: {total_actions}")
+    # 运行摘要: 总动作数 + 有动作/被跳过的轮数，零动作的空转无法再伪装成真实运行 (#52)
+    log_info(_format_action_summary(round_action_counts))
     
     return result
 
@@ -1423,6 +1456,10 @@ async def run_reddit_simulation(
             log_info(f"轮数已截断: {original_rounds} -> {total_rounds} (max_rounds={max_rounds})")
     
     start_time = datetime.now()
+    # 每轮下发的Agent动作数（跳过的轮记0），循环结束后汇总成运行摘要 (#52)
+    # 记"下发"数: 与邻近的总动作数（数据库实际记录的动作）分开统计，两者背离本身
+    # 就是需要看见的信号
+    round_action_counts = []
     
     for round_num in range(total_rounds):
         # 检查是否收到退出信号
@@ -1447,10 +1484,13 @@ async def run_reddit_simulation(
             # 没有活跃agent时也记录round结束（actions_count=0）
             if action_logger:
                 action_logger.log_round_end(round_num + 1, 0)
+            # 记 0，而不是静默 continue: 摘要必须显式暴露这一轮是空转 (#52)
+            round_action_counts.append(0)
             continue
         
         actions = {agent: LLMAction() for _, agent in active_agents}
         await result.env.step(actions)
+        round_action_counts.append(len(actions))
         
         # 从数据库获取实际执行的动作并记录
         actual_actions, last_rowid = fetch_new_actions_from_db(
@@ -1485,6 +1525,8 @@ async def run_reddit_simulation(
     result.total_actions = total_actions
     elapsed = (datetime.now() - start_time).total_seconds()
     log_info(f"模拟循环完成! 耗时: {elapsed:.1f}秒, 总动作: {total_actions}")
+    # 运行摘要: 总动作数 + 有动作/被跳过的轮数，零动作的空转无法再伪装成真实运行 (#52)
+    log_info(_format_action_summary(round_action_counts))
     
     return result
 

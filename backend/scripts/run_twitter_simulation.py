@@ -382,6 +382,23 @@ class IPCHandler:
             return True
 
 
+def _format_action_summary(per_round_actions: List[int]) -> str:
+    """格式化一轮模拟的动作摘要行
+    
+    每轮下发的Agent动作数（跳过的轮记0）汇总成一行显式报告:
+    总动作数 + 有动作/被跳过的轮数。一次零动作的空转运行必须自己说出来，
+    不能再凭"模拟循环完成"蒙混过关 (#52)。
+    """
+    total_rounds = len(per_round_actions)
+    total_actions = sum(per_round_actions)
+    rounds_with_actions = sum(1 for count in per_round_actions if count > 0)
+    rounds_skipped = total_rounds - rounds_with_actions
+    
+    return (f"  - 总动作数: {total_actions} "
+            f"(有动作轮数: {rounds_with_actions}/{total_rounds}, "
+            f"跳过轮数: {rounds_skipped})")
+
+
 class TwitterSimulationRunner:
     """Twitter模拟运行器"""
     
@@ -494,7 +511,9 @@ class TwitterSimulationRunner:
         else:
             multiplier = 1.0
         
-        target_count = int(random.uniform(base_min, base_max) * multiplier)
+        # 时段乘数只"减少"活跃度，不"关闭"本轮: off_peak_activity_multiplier=0.05 时
+        # int(uniform(5, 20) * 0.05) 会取整成 0，整轮零动作是一次空转，不是安静运行 (#52)
+        target_count = max(1, int(random.uniform(base_min, base_max) * multiplier))
         
         # 根据每个Agent的配置计算激活概率
         candidates = []
@@ -510,6 +529,11 @@ class TwitterSimulationRunner:
             # 根据活跃度计算概率
             if random.random() < activity_level:
                 candidates.append(agent_id)
+        
+        # 生成的 active_hours 全都在 07:00-23:59 内，而模拟时钟从 0 点开始，凌晨几轮
+        # 的候选池必然为空: 此时回退到完整 Agent 池，而不是静默地一个人都不选 (#52)
+        if not candidates:
+            candidates = [cfg.get("agent_id", 0) for cfg in agent_configs]
         
         # 随机选择
         selected_ids = random.sample(
@@ -629,6 +653,7 @@ class TwitterSimulationRunner:
         # 主模拟循环
         print("\n开始模拟循环...")
         start_time = datetime.now()
+        round_action_counts = []  # 每轮下发的Agent动作数，跳过轮记0，供运行摘要统计 (#52)
         
         for round_num in range(total_rounds):
             # 计算当前模拟时间
@@ -642,6 +667,7 @@ class TwitterSimulationRunner:
             )
             
             if not active_agents:
+                round_action_counts.append(0)
                 continue
             
             # 构建动作
@@ -652,6 +678,8 @@ class TwitterSimulationRunner:
             
             # 执行动作
             await self.env.step(actions)
+            
+            round_action_counts.append(len(actions))
             
             # 打印进度
             if (round_num + 1) % 10 == 0 or round_num == 0:
@@ -665,6 +693,7 @@ class TwitterSimulationRunner:
         total_elapsed = (datetime.now() - start_time).total_seconds()
         print(f"\n模拟循环完成!")
         print(f"  - 总耗时: {total_elapsed:.1f}秒")
+        print(_format_action_summary(round_action_counts))
         print(f"  - 数据库: {db_path}")
         
         # 是否进入等待命令模式
