@@ -364,9 +364,17 @@ class MLXRunner(_BaseRunner):
                 # what the ontology call used to lose (#51).
                 effective_max_tokens = int(max_tokens)
                 kwargs["max_tokens"] = effective_max_tokens
-            # else: the caller asked for no clamp, so the kwarg stays absent and
-            # the provider applies its own default. That is a decision, not an
-            # accident -- it is logged below rather than inherited silently.
+            else:
+                # No cap from the caller. mlx_vlm.generate applies its OWN
+                # DEFAULT_MAX_TOKENS=2048 when the kwarg is absent (measured in
+                # #51's acceptance run: the ontology retry omitted the cap and
+                # the 1.7B's JSON truncated again), so "no cap" must not mean
+                # "whatever mlx-vlm happens to default to". Resolve one
+                # explicit, config-backed budget instead and log it: an
+                # intentionally uncapped request is then a logged decision,
+                # never a silent inheritance.
+                effective_max_tokens = int(Config.MLX_MAX_TOKENS)
+                kwargs["max_tokens"] = effective_max_tokens
             if temperature and temperature > 0:
                 # mlx_vlm resolves sampling defaults from the checkpoint's
                 # generation_config.json when temperature is omitted; pass it

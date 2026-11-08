@@ -166,8 +166,17 @@ def test_explicit_token_budget_survives_the_hop_into_mlx(mlx):
     assert calls[-1]["kwargs"]["max_tokens"] == Config.ONTOLOGY_LLM_MAX_TOKENS
 
 
-def test_uncapped_request_keeps_the_provider_budget_but_logs_it(mlx):
-    """A caller that wants no clamp keeps it, and the effective budget is logged."""
+def test_an_uncapped_request_never_inherits_mlx_vlms_2048_default(mlx):
+    """A caller that omits the cap gets an explicit, config-backed budget.
+
+    This used to leave the kwarg out, which lets ``mlx_vlm.generate`` apply its
+    own ``DEFAULT_MAX_TOKENS = 2048`` -- measured in #51's acceptance run, where
+    ``LLMClient.chat_json``'s JSON retry omits the cap "so the provider can use
+    its model-specific output limit" and locally there is no such limit, so the
+    retry truncated the 1.7B's ontology JSON a second time and the endpoint
+    answered 502 again. The runner now resolves one budget and logs it, so an
+    omitted cap is a logged decision rather than a silent inheritance.
+    """
     runner, calls = mlx
 
     with _LogCapture() as output:
@@ -176,8 +185,45 @@ def test_uncapped_request_keeps_the_provider_budget_but_logs_it(mlx):
             max_tokens=None,
         ))
 
-    assert "max_tokens" not in calls[-1]["kwargs"]
-    assert "prompt_tokens=2 max_tokens=provider default" in output.getvalue()
+    assert calls[-1]["kwargs"]["max_tokens"] == Config.MLX_MAX_TOKENS
+    assert (
+        f"prompt_tokens=2 max_tokens={Config.MLX_MAX_TOKENS}" in output.getvalue()
+    )
+    # the budget is not the inherited 2048 -- that is the whole point
+    assert Config.MLX_MAX_TOKENS != 2048
+
+
+def test_the_runner_default_budget_is_not_mlx_vlms(monkeypatch):
+    """Pin the constant against the library it must never inherit from."""
+    import mlx_vlm
+
+    library_default = getattr(mlx_vlm, "DEFAULT_MAX_TOKENS", None)
+    if library_default is None:  # the fake module in the tests above
+        library_default = 2048
+    assert Config.MLX_MAX_TOKENS != library_default
+
+
+def test_the_json_retry_chain_cannot_land_on_the_library_default(mlx):
+    """#51's acceptance finding, pinned end to end.
+
+    The measured chain: ontology call at 4096 -> unusable JSON ->
+    ``chat_json`` drops the cap for the retry -> the runner used to forward
+    nothing -> mlx-vlm's 2048 -> truncation -> 502. This drives
+    ``MLXRunner.generate`` through the same ``max_tokens=None`` the retry sends
+    and asserts the kwarg that reaches the library is the resolved budget.
+    """
+    runner, calls = mlx
+
+    # exactly what the retry sends: no cap at all
+    asyncio.run(runner.generate(
+        messages=[{"role": "user", "content": "a prompt"}],
+        max_tokens=None,
+    ))
+
+    assert "max_tokens" in calls[-1]["kwargs"], (
+        "an omitted cap must not leave the kwarg absent"
+    )
+    assert calls[-1]["kwargs"]["max_tokens"] == Config.MLX_MAX_TOKENS
 
 
 def test_runtime_budget_is_logged_on_every_generate(mlx):

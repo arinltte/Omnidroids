@@ -72,6 +72,14 @@ class Config:
     # with the request and the runner logs the value it resolved, so it is never
     # inherited silently. Keep it below LLM_CONTEXT_LENGTH minus the prompt.
     ONTOLOGY_LLM_MAX_TOKENS = int(os.environ.get('ONTOLOGY_LLM_MAX_TOKENS', '4096'))
+    # The MLX runner's budget when a caller omits max_tokens. mlx_vlm.generate
+    # applies its own DEFAULT_MAX_TOKENS=2048 when the kwarg is absent -- measured
+    # in #51's acceptance run, where LLMClient's JSON retry omitted the cap and the
+    # 1.7B's ontology JSON truncated again -- so the runner resolves one explicit,
+    # config-backed budget and logs it rather than inheriting 2048 silently.
+    # A caller that wants a different budget passes its own (see
+    # ONTOLOGY_LLM_MAX_TOKENS for the step-1 prepare call).
+    MLX_MAX_TOKENS = int(os.environ.get('MLX_MAX_TOKENS', '4096'))
     # 单次本地 LLM 调用的超时（秒）。长 prefill 冷启动需要余量；须小于前端上限(1800s)
     LLM_PROXY_TIMEOUT = int(os.environ.get('LLM_PROXY_TIMEOUT', '1800'))
     
