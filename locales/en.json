@@ -638,6 +638,8 @@
     "sectionNoPrefix": "Section {title} missing 'Final Answer:' prefix, adopting LLM output as final content (tool calls: {count})",
     "sectionMaxIter": "Section {title} reached max iterations, forcing generation",
     "sectionForceFailed": "Section {title} force-finish LLM returned None, using default error message",
+    "sectionBodyArtefact": "Section {title} body rejected: {reason} (#53 section-body hygiene)",
+    "sectionRegenerated": "Section {title} regenerated after the artefact rejection (#53)",
     "sectionGenFailedContent": "(This section failed to generate: LLM returned empty response, please retry later)",
     "outlineSavedToFile": "Outline saved to file: {reportId}/outline.json",
     "sectionSaved": "Section saved: {reportId}/section_{sectionNum}.md",
