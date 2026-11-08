@@ -482,3 +482,84 @@ _EVIDENCE = _Path(__file__).resolve().parents[2] / "scratch" / "report49_1794124
 REAL_REPORT_BODY = (
     _EVIDENCE.read_text(encoding="utf-8") if _EVIDENCE.exists() else None
 )
+
+
+# --- review finding 1: the regeneration message must name the REAL reason ----
+
+# the failure the model actually made, in the words it is told
+REASON_PHRASE = {
+    ReportAgent.ARTEFACT_TOOL_CALL: "它是一个工具调用",
+    ReportAgent.ARTEFACT_JSON: "纯JSON",
+    ReportAgent.ARTEFACT_EMPTY: "空的",
+}
+OTHER_PHRASES = {
+    reason: [phrase for other, phrase in REASON_PHRASE.items() if other != reason]
+    for reason in REASON_PHRASE
+}
+
+
+@pytest.mark.parametrize("reason", list(REASON_PHRASE))
+def test_the_regeneration_message_names_the_actual_artefact(reason):
+    """The model was told the wrong thing for a JSON-only or empty body (#53).
+
+    ``_finalize_section_body``'s contract is "the model is told what was wrong",
+    and ``REACT_REGENERATE_MSG`` hardcoded "它是一个工具调用" for all three
+    artefact classes — so a body that was only JSON was regenerated under an
+    instruction about tool calls, which is not the failure the model just made.
+    """
+    message = ReportAgent.regenerate_message(reason)
+
+    assert REASON_PHRASE[reason] in message, f"{reason}: its own failure is named"
+    for phrase in OTHER_PHRASES[reason]:
+        assert phrase not in message, f"{reason}: claims another failure ({phrase})"
+    assert "Final Answer" not in message  # the body must not be prefixed twice
+    assert "重新撰写本章节正文" in message   # every class asks for the same remedy
+    if reason == ReportAgent.ARTEFACT_TOOL_CALL:
+        # only the tool-call class needs the retrieval-stage rule restated
+        assert "工具调用" in message
+
+
+def test_every_artefact_class_has_a_regeneration_message():
+    for reason in (ReportAgent.ARTEFACT_TOOL_CALL, ReportAgent.ARTEFACT_JSON,
+                   ReportAgent.ARTEFACT_EMPTY):
+        assert REASON_PHRASE[reason] in ReportAgent.regenerate_message(reason)
+
+
+# --- review finding 2: the band gate must not need its attribution -----------
+
+def test_the_band_verdict_survives_without_section_attribution():
+    """The band check's required positional turned a real evidence run's verdict
+    into a TypeError (``missing 1 required positional argument``). The band is
+    the primary signal; the per-section attribution is a bonus, so the function
+    must be callable with the body alone."""
+    class _Agent(ReportAgent):
+        def __init__(self):
+            pass
+
+    # in band: no attribution, no exception
+    _Agent.check_report_word_band(" ".join(["word"] * 275), None)
+    _Agent.check_report_word_band(" ".join(["word"] * 275))
+
+    with pytest.raises(ReportWordBandError) as excinfo:
+        _Agent.check_report_word_band(" ".join(["word"] * 400), None)
+    message = str(excinfo.value)
+    assert "400 words" in message          # the verdict still fires
+    assert "outside the configured band" in message
+    assert "Below it: none" in message     # ...and degrades gracefully
+    assert "Fair share with 0 sections" in message
+
+
+def test_the_band_check_with_attribution_still_names_the_sections():
+    class _Agent(ReportAgent):
+        def __init__(self):
+            pass
+
+    with pytest.raises(ReportWordBandError) as excinfo:
+        _Agent.check_report_word_band(
+            " ".join(["word"] * 400),
+            [("Section A", 60), ("Section B", 340)],
+        )
+    message = str(excinfo.value)
+    assert "'Section A' (60 words)" in message
+    assert "'Section B' (340 words)" in message
+    assert "Fair share with 2 sections" in message

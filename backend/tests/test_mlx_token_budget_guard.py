@@ -461,3 +461,59 @@ def test_an_uncapped_json_retry_is_not_asked_for_a_knob(mlx, caplog):
         "no caller budget was truncated, so there is no knob comparison to make"
     )
     assert calls[-1]["kwargs"]["max_tokens"] == Config.MLX_MAX_TOKENS
+
+
+# --- review finding 3: the synthesised finish_reason must follow the budget
+# this runner actually submitted, not the caller's optionality ---------------
+
+def test_a_synthesised_finish_reason_names_the_submitted_budget(monkeypatch):
+    """An uncapped request is NOT an unbounded one any more (#51).
+
+    ``MLXRunner.generate`` resolves ``Config.MLX_MAX_TOKENS`` when the caller
+    sends no cap, so ``finish_reason`` synthesis must key off the budget that
+    was actually submitted (``effective_max_tokens``). Keying off the caller's
+    optionality reported ``stop`` for a request truncated at the resolved 4096 —
+    the silent inheritance this ticket exists to expose.
+    """
+    calls: list[dict] = []
+
+    def _generate(model, processor, prompt, **kwargs):
+        calls.append({"prompt": prompt, "kwargs": dict(kwargs)})
+        # a library answer with no finish_reason at all: the synthesis path
+        return SimpleNamespace(text="{}", finish_reason=None,
+                               prompt_tokens=2, generation_tokens=1)
+
+    import sys
+    import types
+    vlm = types.ModuleType("mlx_vlm")
+    vlm.load = lambda path: (SimpleNamespace(
+        config=SimpleNamespace(max_position_embeddings=262144),
+        parameters=dict), SimpleNamespace(tokenizer=_CountingTokenizer()))
+    vlm.generate = _generate
+    vlm.apply_chat_template = (
+        lambda processor, config, messages, add_generation_prompt=True:
+        " ".join(str(m.get("content", "")) for m in messages))
+    monkeypatch.setitem(sys.modules, "mlx_vlm", vlm)
+    core = types.ModuleType("mlx.core")
+    core.eval = lambda *a, **k: None
+    core.clear_cache = lambda *a, **k: None
+    mlx = types.ModuleType("mlx")
+    mlx.__path__ = []
+    mlx.core = core
+    monkeypatch.setitem(sys.modules, "mlx", mlx)
+    monkeypatch.setitem(sys.modules, "mlx.core", core)
+
+    runner = MLXRunner("fake-mlx", "/tmp/fake-mlx")
+    asyncio.run(runner.load())
+
+    result = asyncio.run(runner.generate(
+        messages=[{"role": "user", "content": "short prompt"}],
+        max_tokens=None,
+    ))
+
+    submitted = calls[-1]["kwargs"]["max_tokens"]
+    assert submitted == Config.MLX_MAX_TOKENS, "the budget travels"
+    assert result.finish_reason == "length", (
+        f"a request submitted with a {submitted}-token budget that returns no "
+        f"finish_reason must not be reported as an unbounded 'stop'"
+    )
