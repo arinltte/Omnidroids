@@ -1005,6 +1005,55 @@ it is **worse on speed and memory**: node mean 12.0 s vs the 4-bit's 6.4 s and f
 12.9 s vs 6.8 s (~1.9× slower per call), sampler peak ~4.0 GB vs the 4-bit's 3347-4556 MB.
 **Probe 2 is OUT for the wave; `small` role unchanged.**
 
+##### 11.3 SmolLM3-3B-8bit (probe 3) — **OUT, node 11/12 but full 2/6**
+
+Weights `mlx-community/SmolLM3-3B-8bit` downloaded once, from `backend/`, to
+`models/SmolLM3-3B-8bit` (`HF_HOME=<repo>/.cache/hf`; log
+`scratch/check46_download_smollm3_3b8.log`) — **3,284,855,870 B / 3.06 GB** (weights-only,
+excl `.cache`), 10 files, ~109 s, exit 0; `model.safetensors` 3,267,527,051 B (3.04 GiB)
+— genuinely 8-bit, ~1.9× the 4-bit's 1.63 GB (item 8); `~/.cache/huggingface` delta 0 KB.
+`mlx_vlm.load(path)` through the app's `MLXRunner`, offline (log
+`scratch/check46_loadcheck_smollm3_3b8.log`): `config.model_type=smollm3`,
+`SmolLM3ForCausalLM`, `config.json` `quantization={bits:8, group_size:64}`, hidden 2048 /
+36 layers, vocab 128 256, resident rss 3766 MB at load, unload OK. Registered in
+`models/registry.json` (`models` only; `roles` unchanged).
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check46_smollm3_3b8_node.log` | `check46_smollm3_3b8_1794096398` | **11/12** | 1 | malformed-json 1 | 257.8 | 21.5 s | 1.0 | 180→3906 MB | 3926 MB |
+| full ×1 | `check46_smollm3_3b8_full.log` | `check46_smollm3_3b8_1794096708` | **2/6** | 4 | malformed-json 3, other-validation 1 | 692.7 | 115.5 s | 3.0 | 180→787 MB | 3956 MB |
+
+Full-mode per-chunk detail (same log; the runner's summary echo re-prints the six
+`[chunk]` lines, so each appears twice in the file — it is one `--repeat 1` run):
+
+| idx | status | chars | s | nodes | edges | calls | class / cause |
+|---|---|---|---|---|---|---|---|
+| 0 | ok | 376 | 56.7 | 6 | 1 | 4 | — |
+| 1 | ok | 368 | 58.6 | 4 | 8 | 6 | — |
+| 2 | **skip** | 213 | 197.6 | — | — | 3 | malformed-json — `ExtractedEdges` truncated JSON (`Unterminated string…`, `finish_reason=stop`, not the 4096 clamp) |
+| 3 | **skip** | 390 | 187.3 | — | — | 2 | malformed-json — same `ExtractedEdges` truncation |
+| 4 | **skip** | 129 | 6.5 | — | — | 1 | other-validation — `ExtractedEntities.extracted_entities.0 Input should be a valid dict` (wrong-shape node, fast-fails on `extract_nodes`) |
+| 5 | **skip** | 390 | 186.1 | — | — | 2 | malformed-json — same `ExtractedEdges` truncation (`Expecting ',' …`) |
+
+**What the 8-bit fixed and what it did not.** Unlike probes 1-2, this is a real
+capacity win: node extraction cleared **11/12** (the 4-bit managed 6/12, item 8), so
+the `$defs`/rename echoes that mangled `extract_nodes` are gone one quant up. But the
+**edge** path still fails 4 of 6 chunks: three are `ExtractedEdges` returning truncated
+JSON (`finish_reason=stop`, unparseable — the M3-truncation fail-fast shape, **not**
+M1's 4096 clamp, which would be `finish_reason=length`) and one is a wrong-shape
+`ExtractedEntities` element. **Not M1's clamp**: no `finish_reason=length`. Only two
+chunks land a graph (10 nodes / 9 edges total). The class moves: chunk 4 aborted
+`malformed-json` in node mode but `other-validation` in full mode, consistent with the
+MLX runner dropping temperature-0.
+
+**Verdict — FAIL, does not reach the bar.** Full mode **2/6** against the 6/6-0-skip
+bar (equal to the 4-bit's 2/6, item 8) — **not near the bar** (the closest 4-bit was
+5/6), so no reproduction run is warranted (row of record stands). It is the only 8-bit
+probe whose node path the re-quant genuinely fixed (11/12 vs the 4-bit's 6/12) and the
+slowest of the wave (full mean 115.5 s/call), but the surviving blocker is one step
+deeper — `ExtractedEdges` truncated JSON + a wrong-shape node, not the schema echo that
+killed probes 1-2. **Probe 3 is OUT for the wave; `small` role unchanged.**
+
 ## 8. Reproduce
 
 ```bash
