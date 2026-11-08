@@ -75,9 +75,6 @@ _ENTITIES_PLAIN_STATEMENT = (
     'An object with the required key "extracted_entities", holding an array of '
     "objects."
 )
-_EDGES_PLAIN_STATEMENT = (
-    'An object with the required key "edges", holding an array of objects.'
-)
 _RESOLUTIONS_PLAIN_STATEMENT = (
     'An object with the required key "entity_resolutions", holding an array of '
     "objects."
