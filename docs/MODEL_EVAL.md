@@ -970,6 +970,41 @@ speed/memory axes**: node mean 21.4 s vs the 4-bit's 14.0 s and full mean 22.1 s
 scaling with generation volume — the full run peaked 2409 MB). **Probe 1 is OUT for the
 wave; `small` role unchanged.**
 
+##### 11.2 gemma-4-e2b-it-8bit (probe 2) — **OUT, deterministic 0/12 & 0/6**
+
+Weights `mlx-community/gemma-4-e2b-it-8bit` downloaded once, from `backend/`, to
+`models/gemma-4-e2b-it-8bit` (`HF_HOME=<repo>/.cache/hf`; log
+`scratch/check46_download_gemma4e2b8.log`) — **5,899,036,930 B / 5.49 GB** (weights-only,
+excl `.cache`), 11 files, ~163 s, exit 0; `~/.cache/huggingface` delta 0 KB. Weights
+sharded 2× = `model-00001` 5,365,634,455 B + `model-00002` 500,946,703 B = 5,866,581,158 B
+(5.46 GB) — genuinely 8-bit, ~1.7× the 4-bit's 3.34 GB (item 7). `mlx_vlm.load(path)`
+through the app's `MLXRunner`, offline (log `scratch/check46_loadcheck_gemma4e2b8.log`):
+`config.model_type=gemma4`, `architectures=Gemma4ForConditionalGeneration` (multimodal —
+the harmless `audio_utils` mel-filter warning), `config.json`
+`quantization={bits:8, group_size:64, mode:affine}`, hidden 1536 / 35 layers, resident
+rss 3095 MB at load, unload OK. Registered in `models/registry.json` (`models` only;
+`roles` unchanged).
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check46_gemma4e2b8_node.log` | `check46_gemma4e2b8_1794095780` | **0/12** | 12 | wrong-keys 12 | 143.6 | 12.0 s | 1.0 | 180→2721 MB | 4013 MB |
+| full ×1 | `check46_gemma4e2b8_full.log` | `check46_gemma4e2b8_1794095941` | **0/6** | 6 | wrong-keys 6 | 77.4 | 12.9 s | 1.0 | 180→1289 MB | 3956 MB |
+
+**Failure class — wrong-keys, the identical `$defs` schema echo as the 4-bit (item 7),
+and it is deterministic.** Every `extract_nodes` call returns the inlined JSON schema
+verbatim (`keys=['$defs','properties','required','title']`), so `ExtractedEntities`
+raises `extracted_entities Field required`; full mode aborts on the first call inside
+`add_episode`, making exactly **1.0** LLM call/chunk. **Not M1's 4096 clamp** (all
+`finish_reason=stop`, no truncation). The 8-bit re-quant changes nothing about the class.
+
+**Verdict — FAIL, does not reach the bar, and 8-bit did not help.** Full mode **0/6**
+against the 6/6-0-skip bar — the class-for-class identical failure to the 4-bit
+`gemma-4-e2b-it-4bit` (item 7: 0/12 node, 0/6 full, byte-identical `$defs` echo). It is
+the same echo on the same `extract_nodes` prompt one quant up, so 8-bit buys nothing;
+it is **worse on speed and memory**: node mean 12.0 s vs the 4-bit's 6.4 s and full mean
+12.9 s vs 6.8 s (~1.9× slower per call), sampler peak ~4.0 GB vs the 4-bit's 3347-4556 MB.
+**Probe 2 is OUT for the wave; `small` role unchanged.**
+
 ## 8. Reproduce
 
 ```bash
