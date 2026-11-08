@@ -23,6 +23,7 @@ from flask import request, Response
 
 from . import llm_proxy_bp
 from ..config import Config
+from ..models.runtime import PromptTooLongError
 from ..utils import llm_metrics
 from ..utils.logger import get_logger
 from ..models.manager import get_model_manager, ModelError
@@ -89,8 +90,17 @@ def chat_completions():
                            completion_tokens=None, seconds=elapsed, ok=False,
                            finish_reason=None, error=str(exc)[:200])
         logger.error("chat.completions upstream error: %s", exc)
+        # #51: tag the context guard's rejection so the client seam can re-raise
+        # it as LLMResponseError and the operator sees the precise reason
+        # (prompt tokens, the window, the overage, the biggest contributor)
+        # instead of a generic "LLM provider request failed (HTTP 502)".
+        error_type = (
+            "prompt_too_long"
+            if isinstance(exc, PromptTooLongError)
+            else "upstream_unavailable"
+        )
         payload = json.dumps({"error": {"message": f"local model error: {exc}",
-                                        "type": "upstream_unavailable"}})
+                                        "type": error_type}})
         return Response(payload, status=502, mimetype="application/json")
 
     elapsed = time.time() - started
