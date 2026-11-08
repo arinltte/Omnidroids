@@ -1,3 +1,4 @@
+from app.config import Config
 from app.services.ontology_generator import OntologyGenerator
 
 
@@ -65,7 +66,9 @@ def test_very_long_ontology_context_selects_representative_chunks():
     assert context.count("--- 文档 1 / 分块") == generator.MAX_LONG_TEXT_CHUNKS
 
 
-def test_ontology_generation_does_not_cap_structured_output_tokens():
+def test_ontology_generation_uses_the_configured_token_budget():
+    """#51: the budget must be explicit and config-backed, not a dropped kwarg."""
+
     llm = RecordingLLMClient()
     generator = OntologyGenerator(llm_client=llm)
 
@@ -75,5 +78,5 @@ def test_ontology_generation_does_not_cap_structured_output_tokens():
     )
 
     assert result["analysis_summary"] == "ok"
-    assert llm.calls[0]["max_tokens"] is None
+    assert llm.calls[0]["max_tokens"] == Config.ONTOLOGY_LLM_MAX_TOKENS
     assert llm.calls[0]["max_attempts"] == 2

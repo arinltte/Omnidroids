@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from typing import Dict, Any, List, Optional
+from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.locale import get_language_instruction
 from ..utils.file_parser import split_text_into_chunks
@@ -235,10 +236,13 @@ class OntologyGenerator:
         result = self.llm_client.chat_json(
             messages=messages,
             temperature=0.3,
-            # Structured ontology responses can exceed 4096 completion tokens,
-            # especially when a compatible provider counts hidden reasoning in
-            # the same budget. Let the provider use its model-specific limit.
-            max_tokens=None,
+            # #51: an explicit, config-backed budget. This used to be
+            # max_tokens=None ("let the provider use its model-specific
+            # limit"); MLXRunner.generate drops a falsy cap, so mlx-vlm applied
+            # its own DEFAULT_MAX_TOKENS=2048 and the 1.7B's ontology JSON
+            # truncated (finish_reason=length -> 502). The budget now travels
+            # with the request instead of being inherited silently.
+            max_tokens=Config.ONTOLOGY_LLM_MAX_TOKENS,
             max_attempts=2,
         )
         

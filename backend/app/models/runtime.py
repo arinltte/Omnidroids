@@ -180,6 +180,71 @@ class _BaseRunner:
 
 
 # ---------------------------------------------------------------------------
+# Token accounting
+# ---------------------------------------------------------------------------
+class PromptTooLongError(RuntimeError):
+    """The assembled prompt does not fit the configured context window.
+
+    Raised BEFORE generation (#51): the step-1 prepare 502 turned out to be two
+    stacked defects -- a dropped ``max_tokens`` and a 17,189-token prompt going
+    in unchecked against ``LLM_CONTEXT_LENGTH=8192``. An oversized prompt is
+    never silently truncated here; the caller gets the exact size, the limit,
+    the overage and what contributed most to it.
+    """
+
+
+def _model_tokenizer(processor) -> Any:
+    """The tokenizer object mlx_vlm's own generation path tokenizes with."""
+
+    return getattr(processor, "tokenizer", None) or processor
+
+
+def _count_tokens(tokenizer, text: str) -> Optional[int]:
+    """Exact token count for ``text``, or None when the tokenizer cannot."""
+
+    try:
+        return len(tokenizer.encode(text))
+    except Exception:
+        pass
+    try:
+        return len(tokenizer(text)["input_ids"])
+    except Exception:
+        return None
+
+
+def _prompt_size_report(
+    prompt: str,
+    messages: List[Dict[str, Any]],
+    processor,
+    context_length: int,
+) -> tuple[Optional[int], Optional[tuple[str, int]]]:
+    """(prompt tokens, largest message as (label, tokens)) — an exact count.
+
+    The count comes from the model's own tokenizer, the same one
+    ``mlx_vlm.generate`` feeds the templated prompt to, so the guard compares
+    real tokens instead of estimating from a character count. The per-message
+    attribution is only counted once the prompt is over the limit (nothing needs
+    attributing otherwise), and ``(None, None)`` means no tokenizer is reachable
+    on the processor, so the size is unknown.
+    """
+
+    tokenizer = _model_tokenizer(processor)
+    total = _count_tokens(tokenizer, prompt)
+    if total is None or total <= context_length:
+        return total, None
+    largest: Optional[tuple[str, int]] = None
+    for index, message in enumerate(messages):
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            content = ""
+        tokens = _count_tokens(tokenizer, content) or 0
+        label = f"{message.get('role', 'user')} message #{index + 1}"
+        if largest is None or tokens > largest[1]:
+            largest = (label, tokens)
+    return total, largest
+
+
+# ---------------------------------------------------------------------------
 # MLX (macOS, in-process)
 # ---------------------------------------------------------------------------
 class MLXRunner(_BaseRunner):
@@ -264,13 +329,50 @@ class MLXRunner(_BaseRunner):
                     f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages
                 )
             kwargs: Dict[str, Any] = {"verbose": False}
+            effective_max_tokens: Optional[int] = None
             if max_tokens and max_tokens > 0:
-                kwargs["max_tokens"] = int(max_tokens)
+                # The caller's explicit budget: forwarded verbatim, which is
+                # what the ontology call used to lose (#51).
+                effective_max_tokens = int(max_tokens)
+                kwargs["max_tokens"] = effective_max_tokens
+            # else: the caller asked for no clamp, so the kwarg stays absent and
+            # the provider applies its own default. That is a decision, not an
+            # accident -- it is logged below rather than inherited silently.
             if temperature and temperature > 0:
                 # mlx_vlm resolves sampling defaults from the checkpoint's
                 # generation_config.json when temperature is omitted; pass it
                 # through only when the caller asks for it.
                 kwargs["temperature"] = float(temperature)
+            # The prompt we are about to submit, counted with the model's own
+            # tokenizer, checked against the resolved context window.
+            prompt_tokens, largest_message = _prompt_size_report(
+                prompt, messages, self._processor, Config.LLM_CONTEXT_LENGTH
+            )
+            logger.info(
+                "mlx %s generate: prompt_tokens=%s max_tokens=%s context=%d",
+                self.name,
+                prompt_tokens if prompt_tokens is not None else "?",
+                effective_max_tokens
+                if effective_max_tokens is not None
+                else "provider default",
+                Config.LLM_CONTEXT_LENGTH,
+            )
+            if prompt_tokens is not None and prompt_tokens > Config.LLM_CONTEXT_LENGTH:
+                over_by = prompt_tokens - Config.LLM_CONTEXT_LENGTH
+                contributor = (
+                    f" largest contributor: {largest_message[0]}, "
+                    f"{largest_message[1]} tokens"
+                    if largest_message
+                    else ""
+                )
+                raise PromptTooLongError(
+                    f"prompt of {prompt_tokens} tokens exceeds the "
+                    f"{Config.LLM_CONTEXT_LENGTH}-token context window of model "
+                    f"{self.name} (over by {over_by}).{contributor} Shorten the "
+                    f"input (fewer or smaller documents, a shorter requirement) "
+                    f"or raise LLM_CONTEXT_LENGTH; an oversized prompt is never "
+                    f"silently truncated."
+                )
             result = mlx_vlm.generate(self._model, self._processor, prompt, **kwargs)
             finish = result.finish_reason or ("length" if max_tokens else "stop")
             return GenResult(
