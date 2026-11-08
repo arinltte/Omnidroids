@@ -183,14 +183,43 @@ class _BaseRunner:
 # Token accounting
 # ---------------------------------------------------------------------------
 class PromptTooLongError(RuntimeError):
-    """The assembled prompt does not fit the configured context window.
+    """The assembled prompt does not fit the model's own context window.
 
-    Raised BEFORE generation (#51): the step-1 prepare 502 turned out to be two
-    stacked defects -- a dropped ``max_tokens`` and a 17,189-token prompt going
-    in unchecked against ``LLM_CONTEXT_LENGTH=8192``. An oversized prompt is
-    never silently truncated here; the caller gets the exact size, the limit,
-    the overage and what contributed most to it.
+    Raised BEFORE generation (#51), so an impossible request fails here instead
+    of at prefill. ``LLM_CONTEXT_LENGTH`` is deliberately NOT the threshold: it
+    is an operational cap (it feeds ``llm_monitor``'s ``num_ctx`` report), while
+    the checkpoint's own ``max_position_embeddings`` is the capability — the
+    1.7B and the 9B both declare 262144. Blocking at the cap would take a path
+    that demonstrably works: ACCEPTANCE_12 §2 records the owner's 17,189-token
+    ontology prompt as "context, not the cause", with the endpoint succeeding
+    (43 s) while that prompt was in place. Over the cap but inside the model
+    window therefore only warns; over the model window raises.
     """
+
+
+def _context_window_from_config(config) -> Optional[int]:
+    """``max_position_embeddings`` from a model config, text_config honoured.
+
+    The 9B (Qwen3_5-style) checkpoint nests it under ``text_config`` while the
+    1.7B and the MiniCPM checkpoints keep it top level, so both are read.
+    """
+
+    for holder in (config, getattr(config, "text_config", None)):
+        if holder is None:
+            continue
+        try:
+            window = int(getattr(holder, "max_position_embeddings", None))
+        except (TypeError, ValueError):
+            continue
+        if window > 0:
+            return window
+    return None
+
+
+def _model_context_window(model) -> Optional[int]:
+    """The loaded model's own context window, or None when it declares none."""
+
+    return _context_window_from_config(getattr(model, "config", None))
 
 
 def _model_tokenizer(processor) -> Any:
@@ -216,21 +245,21 @@ def _prompt_size_report(
     prompt: str,
     messages: List[Dict[str, Any]],
     processor,
-    context_length: int,
+    limit: int,
 ) -> tuple[Optional[int], Optional[tuple[str, int]]]:
     """(prompt tokens, largest message as (label, tokens)) — an exact count.
 
     The count comes from the model's own tokenizer, the same one
     ``mlx_vlm.generate`` feeds the templated prompt to, so the guard compares
     real tokens instead of estimating from a character count. The per-message
-    attribution is only counted once the prompt is over the limit (nothing needs
+    attribution is only counted once the prompt is over ``limit`` (nothing needs
     attributing otherwise), and ``(None, None)`` means no tokenizer is reachable
     on the processor, so the size is unknown.
     """
 
     tokenizer = _model_tokenizer(processor)
     total = _count_tokens(tokenizer, prompt)
-    if total is None or total <= context_length:
+    if total is None or total <= limit:
         return total, None
     largest: Optional[tuple[str, int]] = None
     for index, message in enumerate(messages):
@@ -344,34 +373,61 @@ class MLXRunner(_BaseRunner):
                 # through only when the caller asks for it.
                 kwargs["temperature"] = float(temperature)
             # The prompt we are about to submit, counted with the model's own
-            # tokenizer, checked against the resolved context window.
+            # tokenizer. Two thresholds, deliberately: the checkpoint's own
+            # window is the hard one, LLM_CONTEXT_LENGTH the operational cap.
+            operational_cap = int(Config.LLM_CONTEXT_LENGTH)
+            model_window = _model_context_window(self._model)
+            if model_window is None:
+                # The checkpoint declares no window, so the operational cap is
+                # the only limit we have. Logged, so the guard is never
+                # silently disabled and never silently widened.
+                model_window = operational_cap
+                logger.info(
+                    "mlx %s: model config declares no context window; "
+                    "falling back to the operational cap %d tokens",
+                    self.name, operational_cap,
+                )
             prompt_tokens, largest_message = _prompt_size_report(
-                prompt, messages, self._processor, Config.LLM_CONTEXT_LENGTH
+                prompt, messages, self._processor, model_window
             )
             logger.info(
-                "mlx %s generate: prompt_tokens=%s max_tokens=%s context=%d",
+                "mlx %s generate: prompt_tokens=%s max_tokens=%s "
+                "operational_cap=%d model_window=%d",
                 self.name,
                 prompt_tokens if prompt_tokens is not None else "?",
                 effective_max_tokens
                 if effective_max_tokens is not None
                 else "provider default",
-                Config.LLM_CONTEXT_LENGTH,
+                operational_cap,
+                model_window,
             )
-            if prompt_tokens is not None and prompt_tokens > Config.LLM_CONTEXT_LENGTH:
-                over_by = prompt_tokens - Config.LLM_CONTEXT_LENGTH
+            if prompt_tokens is not None and prompt_tokens > model_window:
+                over_by = prompt_tokens - model_window
                 contributor = (
-                    f" largest contributor: {largest_message[0]}, "
+                    f"; largest contributor: {largest_message[0]}, "
                     f"{largest_message[1]} tokens"
                     if largest_message
                     else ""
                 )
                 raise PromptTooLongError(
                     f"prompt of {prompt_tokens} tokens exceeds the "
-                    f"{Config.LLM_CONTEXT_LENGTH}-token context window of model "
-                    f"{self.name} (over by {over_by}).{contributor} Shorten the "
-                    f"input (fewer or smaller documents, a shorter requirement) "
-                    f"or raise LLM_CONTEXT_LENGTH; an oversized prompt is never "
-                    f"silently truncated."
+                    f"{model_window}-token context window of model "
+                    f"{self.name} (over by {over_by}){contributor}. Remedies: "
+                    f"shorten the documents or the simulation requirement, or "
+                    f"(operational cap only) raise LLM_CONTEXT_LENGTH. An "
+                    f"oversized prompt is never silently truncated."
+                )
+            if prompt_tokens is not None and prompt_tokens > operational_cap:
+                # Loud, not blocking: the checkpoint handles it (the 1.7B
+                # declares 262144), so the owner's own document keeps working
+                # while the number that no longer matches the cap is visible.
+                logger.warning(
+                    "mlx %s prompt_tokens=%d exceeds the operational cap "
+                    "LLM_CONTEXT_LENGTH=%d but fits the model's %d-token "
+                    "window (headroom %d); raise LLM_CONTEXT_LENGTH or "
+                    "shorten the prompt",
+                    self.name, prompt_tokens, operational_cap, model_window,
+                    model_window - prompt_tokens,
                 )
             result = mlx_vlm.generate(self._model, self._processor, prompt, **kwargs)
             finish = result.finish_reason or ("length" if max_tokens else "stop")
