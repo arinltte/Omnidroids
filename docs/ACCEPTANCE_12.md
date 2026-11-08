@@ -336,3 +336,254 @@ GRAPHITI_LLM_MODEL=LFM3-1.7B-MLX-4bit .venv/bin/python ../scratch/accept48_run.p
 # Ollama must be closed; :5001 free; ~2.5 h end to end (this run: 2 h 20 min
 # of build after a ~3 min prepare); SIGTERM-only; evidence lands in scratch/accept48_*
 ```
+
+---
+
+# Step-4 report run (issue #49) — a real report on real graph data with the `big` model
+
+> **Ticket:** #49 · spec #30 (owner decision 3: "step-4 proof must be a real report
+> run") · blocked by #48 and #34. **Branch:** `report/49-real-step4-run` off
+> `phase6-integration` @ `ca35f18` (main tree, no worktree), **docs-only commit**,
+> never pushed. **Date:** 2026-11-08, 07:57–08:46 UTC.
+> **Method note:** every number below is copied from this run's logs in `scratch/`
+> (git-ignored by design). The report body is judged from the file saved on disk, not
+> from memory. No app code, no `docs/MODEL_EVAL.md`, no `.env` value was changed.
+
+**Conditions of record**
+
+- **Stack as shipped at `ca35f18`.** Graphiti + embedded Kuzu + arctic-embed-s 384-d.
+  Steps 1–3 (prepare, build, OASIS run) are served by the `small` role,
+  `LiquidAI/LFM3-1.7B-MLX-4bit`, exported into the backend child as
+  `GRAPHITI_LLM_MODEL` (the only way a shell value survives `load_dotenv(override=True)`).
+  Step 4 resolves **the `big` role through
+  `backend/app/models/assignment.py::resolve_report_model`** → `models/registry.json`
+  `roles.big` = `Ornith-1.5-9B-MLX-6bit`. `REPORT_LLM_MODEL_NAME` is **unset**, so the
+  role indirection is what served the report; nothing in `.env` was touched.
+- **M1/M2/M3 untouched:** `GRAPHITI_LLM_MAX_TOKENS=4096` (M1's clamp), M2's per-chunk
+  skip + batch-succeeded terminator, M3's truncation fail-fast; the skip-fraction gate
+  (`GRAPHITI_MAX_SKIPPED_FRACTION`, default 0.3) was **never suppressed** — it passed at
+  28.6%.
+- **Ollama asserted closed** before and after (:11434 refused both times). **SIGTERM
+  only** — every stop, including the end-of-run one, was `os.killpg(pgid, SIGTERM)`
+  (returncode 0); never `kill -9`.
+- **Port:** the shipped **:5001** (`.env` pins `LLM_BASE_URL=http://localhost:5001/v1`
+  and `app/config.py` loads it with `override=True`, so a free port would break the
+  graphiti seam's own self-reference — #48's recorded reason). Asserted free first.
+- **`OASIS_DEFAULT_MAX_ROUNDS=6`** is the value shipped in `.env` (unmodified); the
+  driver sent `max_rounds=6` to `POST /api/simulation/start` and the runner echoed
+  `max_rounds_applied=6`. Spec #30 puts "OASIS simulation tuning beyond what the real
+  step-4 report needs" **out of scope**, so nothing was tuned.
+- **No downloads.** Both weights verified present from the registry:
+  `LFM3-1.7B-MLX-4bit` 991,134,989 B and `Ornith-1.5-9B-MLX-6bit` 7,298,159,159 B.
+- **Language:** every request carried `Accept-Language: en` (what an English browser
+  sends; `app/utils/locale.py` reads the locale from that header).
+
+**The document of record.** #49 does not require the owner's PDF. The run used
+`scratch/report49_document.txt` — an English nine-paragraph brand-reputation narrative,
+2,176 chars, sha256 `42f77a0ee36065c15ddb620f6585591b50895cd666bb3fa0fab86a9667fe7ee0`.
+Its size was chosen for the pipeline's own chunker (`TextProcessor.split_text`,
+chunk_size 500 / overlap 50): it yields **7 chunks**, the chunk count that minimises the
+skip-fraction exposure of the `small` model's measured 3/6 full-mode rate (MODEL_EVAL
+§7c). Nothing in the document is synthetic graph data — every entity in the graph was
+extracted by the real `small` model through the real endpoints.
+
+## 1. The endpoint chain, and what each step cost
+
+Everything below is one real `backend/run.py` child (pid 55792) on the shipped :5001,
+driven only over HTTP (`scratch/report49_run_1794124681.log`):
+
+| # | endpoint | ids minted / measured | wall |
+|---|---|---|---|
+| 1 | `POST /api/graph/ontology/generate` (bare SPA field set) | project `proj_7a30f87a0ee4`, 7 entity + 10 edge types | ~26 s |
+| 2 | `POST /api/graph/build` → `GET /api/graph/task/<id>` terminal | **fresh graph `mirofish_fe120eede3574695`**, batch `local_fbabd7304082470b`, task `202b793c-3561-4235-b632-38c0a489e482` → `completed` | **1,430.3 s** |
+| 3 | `POST /api/simulation/create` | simulation `sim_083629890225` (fresh) | <1 s |
+| 4 | `POST /api/simulation/prepare` → `POST /api/simulation/prepare/status` | 19 entities → 19 profiles (16 `agent_configs`), terminal `status=ready` | **213.9 s** |
+| 5 | `POST /api/simulation/start` (`platform=parallel`, `max_rounds=6`) → `GET /api/simulation/<id>/run-status` | runner `running` → **`completed`** | **15.6 s** |
+| 6 | `POST /api/simulation/close-env` | env exited gracefully, runner reached terminal | ~5 s |
+| 7 | `POST /api/report/generate` (`force_regenerate=true`) → `POST /api/report/generate/status` | report **`report_bd4b38b4208b`**, task `edcefe41-7459-4571-b770-efe763f8dda9` → `completed` | **1,102.7 s** |
+| 8 | `GET /api/report/report_bd4b38b4208b` (+ `/download`) | the saved body | <1 s |
+
+End-to-end for steps 1–4: **≈ 46 minutes** of pipeline time (build 1,430 s → prepare
+214 s → simulation 16 s → report 1,103 s), plus 140 s of idle wait for the unload proof.
+
+**The simulation that produced the graph data (step 3).** The LLM-generated config
+asked for `total_simulation_hours=72` with `minutes_per_round=60` → 72 config rounds,
+truncated to **6 actually run** ("轮数已截断: 72 -> 6" in
+`sim_083629890225/simulation.log`, both platforms). Actions: **22** (11 twitter +
+11 reddit) in `sim_083629890225/twitter|reddit/actions.jsonl`. **All 11 per platform
+are the seed posts the env publishes at round 0 — zero LLM-driven agent actions**;
+see finding 1. The graph the report reads is the one the *build* produced (43 nodes /
+58 edges), which is why #49's "real graph data" is satisfied by the build path: every
+node and edge was extracted by the real `small` model from the real document.
+
+## 2. Which model served step 4 (not the request payload)
+
+Proven from the backend's own log (`scratch/report49_backend_1794124681.log:1704`):
+
+```
+[16:26:05] INFO: MODEL LOADED Ornith-1.5-9B-MLX-6bit [mlx] rss_before=1440MB rss_after=1488MB est=8004MB
+[16:27:49] INFO: idle hard-unload LFM3-1.7B-MLX-4bit (idle>120s)
+[16:27:49] INFO: MODEL UNLOADED LFM3-1.7B-MLX-4bit rss_before=1359MB rss_after=1616MB  ⚠ footprint did NOT drop below floor (+150MB)
+[16:46:26] INFO: idle hard-unload Ornith-1.5-9B-MLX-6bit (idle>120s)
+[16:46:26] INFO: MODEL UNLOADED Ornith-1.5-9B-MLX-6bit rss_before=191MB rss_after=534MB  ⚠ footprint did NOT drop below floor (+150MB)
+```
+
+The 9B was loaded 4 s after `POST /api/report/generate` returned, and the `small`
+model was **evicted by the co-residency limit** (~1.7 s later) because a 9B + a 1.7B
+do not fit the 11 GB budget — so the 1.7B cannot have answered any report call. What
+the request payload asked for is irrelevant: the resolution is the registry's `big`
+role.
+
+## 3. Wall time + RSS + the clean unload
+
+**Wall time:** the report task took **1,102.7 s** (08:26:01.877 → 08:44:24.563 UTC)
+from the POST returning to the task's terminal `completed`. Inside it, the agent log
+(`backend/uploads/reports/report_bd4b38b4208b/agent_log.jsonl`) records
+20 `llm_response` and 12 `tool_call` events across 4 sections.
+
+**RSS** (psutil thread over the whole backend tree, **10 Hz, 24,425 samples**,
+`scratch/report49_monitor_1794124681.jsonl`):
+
+| window | samples | min MB | max MB |
+|---|---|---|---|
+| boot → build + prepare + simulation (`small` resident) | 1,620 | 179.1 | 2,250.6 |
+| the 9B's load instant | 2 | 1,442.6 | **3,090.5 (overall peak, 08:26:02.679)** |
+| report generation (the 9B serving) | 1,036 | 25.2 | 2,432.1 |
+| idle wait before the unload | 118 | 194.6 | 194.6 |
+| after the 9B's unload | 18 | 541.7 | 541.7 |
+
+**Caution recorded with these numbers (finding 7):** the psutil RSS trace is *not* a
+reliable footprint witness for the MLX weights on this 16 GB machine — it fell to
+**25.2 MB** at 08:38:01 while the model was demonstrably generating, i.e. macOS
+compressed/purged the weights. The manager's own accounting is the better witness, and
+it puts the 9B at ~1.4–1.9 GB (`resident_mb` 1,924–2,816 MB while both models were
+briefly co-resident; 1,751 MB with only the 9B) — **far below** its `est=8004MB` and
+its 7.30 GB on-disk 6-bit size. So the "#48-style RSS ≈ weight size" proof does not
+reproduce for the 9B here, and the `MODEL LOADED` line above is the decisive evidence.
+
+**The clean unload.** The driver waited 140.2 s (> `MODEL_IDLE_UNLOAD_SECONDS=120`) and
+then read the runtime status: **`resident_mb=0`, `loaded_models_final=[]`** — the
+mem_check criterion ("resident returns to ~0 MB") holds, and the `MODEL UNLOADED
+Ornith-1.5-9B-MLX-6bit` line is in the backend log. The process RSS stays ~352 MB above
+the 179.1 MB boot baseline (189.0 MB at report finish → 541.7 MB at the unload
+instant); that floor drift is the known upstream MLX allocator artifact (MODEL_EVAL
+§7c/A5) and the manager flags it itself on **both** unloads
+(`⚠ footprint did NOT drop below floor (+150MB)`).
+
+## 4. The verdict on the saved body
+
+The body was saved **before** judging: `scratch/report49_1794124681.md`, 11,303 bytes /
+141 lines, sha256 `6f0bcf7f78d661bde59fecbb3633e610a4c5bfc1d5348630b29f13ab8050e3eb`,
+byte-identical to what `GET /api/report/report_bd4b38b4208b/download` returns (200, same
+sha256). Outline: 4 sections; per-section word counts 92 / 211 / 25 / 24.
+
+**Bullet 1 — "generated end to end on real graph data (not a routed single call)":
+SATISFIED.** 8 real endpoints in sequence, from `POST /api/graph/ontology/generate` to
+`GET /api/report/<report_id>`, over a fresh project/graph/simulation, with a real
+6-round OASIS run in between. This is not the 27.8 s single routed call of session 7.
+
+**Bullet 2a — "the answer inside the 250-350-word band … judged from the saved body":
+NOT SATISFIED (measured, narrowly).** Using #34's own metric (`len(body.split())`, the
+same expression `scratch/report_probe.py` and `bigmodel_eval.py` used for the 275-word
+gate) the saved body is **357 words — 7 above the 350 ceiling**. Prose-only (headings,
+blockquotes and the leaked tool-call blocks stripped) is **163, below the band**; the
+body carries 2,717 CJK characters. Both readings miss the band, and neither is a
+like-for-like target: the band was calibrated on a single ~300-word English answer,
+while this body is a four-section Chinese report of which **two sections contain no
+prose at all** (finding 4), so the count is ~2 sections' worth rather than a real
+report's length. Recorded as measured, not fixed.
+
+**Bullet 2b — "faithful to the graph (no invented entities)": SATISFIED.** Judged
+against all 43 nodes and 58 edge facts of `mirofish_fe120eede3574695`
+(`scratch/report49_graph_dump.json`):
+
+- 96 distinct Latin tokens in the cleaned body → **0 without a graph trace**.
+- All 6 Arabic numerals in the body (2, 2026, 30, 4, 40,000, 5) appear verbatim in a
+  node name or an edge fact.
+- The Chinese numerals resolve to graph facts: 两 → the node `two other universities in
+  the province`; 4万 → `40,000`; 十 inside 十分 is an adverb, not a count.
+- All 10 blockquote lines trace to graph facts (one needed a near-verbatim match, `;`
+  for `.`).
+- **No invented entity is listed, because none was found.** The only text in the body
+  that is not graph-sourced is the two leaked tool-call blocks of finding 4.
+
+**Bullet 3 — "wall time + RSS recorded; the `big` model unloads cleanly after":
+SATISFIED** (§3: 1,102.7 s, 3,090.5 MB peak, `resident_mb=0` / `loaded=[]` after a
+140.2 s wait, with the +150 MB floor artifact flagged by the manager itself).
+
+## 5. Findings recorded (measured, not fixed — no app-code change)
+
+1. **Six rounds produced zero agent actions.** Both LLM-generated configs asked for
+   `minutes_per_round=60` with `off_peak_hours=[0,1,2,3,4,5]` and
+   `off_peak_activity_multiplier=0.05`, so `get_active_agents_for_round`
+   (`backend/scripts/run_parallel_simulation.py:1040`) computes
+   `target_count = int(uniform(5,9) × 0.05) = 0` for every one of the six truncated
+   rounds — all six land in simulated hour 0–5. `sim_083629890225/twitter|reddit/actions.jsonl`
+   therefore hold only the 10 seed posts per platform and 16 event records, with
+   `round_num=None`. Reproduced on the first run's config too (19 agents, 5–9/hour).
+   Spec #30 excludes OASIS tuning, so this is the measured outcome, not a defect to fix
+   here.
+2. **A finished simulation stays `running`.** The OASIS env deliberately enters
+   wait-command mode (so the report's `interview_agents` tool can talk to live agents),
+   so the runner never reaches a terminal status on its own — and
+   `POST /api/report/generate` refuses a non-terminal runner with 409. The real path is
+   `POST /api/simulation/close-env`, the graceful close the SPA itself calls
+   (`src/views/SimulationRunView.vue:167`, `src/views/SimulationView.vue:196`). My
+   first driver did not know this and stopped at the simulation; recorded here because
+   the endpoint chain of #49 is incomplete without it.
+3. **`enable_graph_memory_update=true` fails 3 of 3 activity batches and kills the
+   simulation.** First run (epoch 1794122026, `sim_7d26912c7623`,
+   `scratch/report49_backend_1794122026.log:1506/1603/1638`):
+   `6 validation errors for ExtractedEntities` and two
+   `truncated/unparseable JSON response … Unterminated string … char 14589` /
+   `Invalid control character … char 14382` — the same two classes #48 recorded on the
+   document path, now hit by the `small` model over the simulation's seed posts. The
+   updater fails closed (`zep_graph_memory_updater.py` never replays a non-idempotent
+   `graph.add`), `SimulationRunner` turns that into `RunnerStatus.FAILED`, and the
+   report endpoint answers 409. That run was stopped there, with the backend shut down
+   cleanly. **The accepted re-run used `enable_graph_memory_update=false` — the
+   endpoint's own default** — which is what let step 4 be proven; the graph the report
+   reads is entirely build-produced.
+4. **Two of the four report sections contain no prose at all.**
+   `section_03.md` (25 words) and `section_04.md` (24 words) hold nothing but the
+   model's last `<tool_call>{"name": "panorama_search", "parameters": {"query": "…"}}
+   emission — the ReAct loop exhausted its 5-call budget
+   (`ReportAgent.MAX_TOOL_CALLS_PER_SECTION`) and accepted a tool call as the section
+   content. This is the direct cause of the 357-word count and is the most serious
+   defect this run measured.
+5. **`interview_agents` returned 0 of 16 agents in every section**, because the env is
+   closed (finding 2) before the report may start — so the tool the report prompt
+   advertises as "call the real interview API on the running simulation" is
+   structurally unusable at step 4.
+6. **The `big` model answered in Chinese although the locale was `en`.** The locale was
+   provably `en`: the task messages and the report's console log are English (`t()`
+   resolved to `en.json`), and both the outline and section prompts append
+   `get_language_instruction()` = "Please respond in English." The 9B ignored it and
+   wrote the whole report in Chinese, following the Chinese prompt templates.
+7. **The 9B's measured footprint is far below its weight size, and psutil RSS is
+   unreliable for MLX weights on 16 GB** (§3): peak tree RSS 3,090.5 MB against an
+   `est=8004MB` and a 7.30 GB on-disk 6-bit checkpoint, with the same trace dipping to
+   25.2 MB mid-generation.
+
+## 6. Reproduce
+
+```bash
+git checkout report/49-real-step4-run          # ca35f18 + the docs commit
+cd backend
+.venv/bin/python ../scratch/report49_run.py
+# Ollama closed; :5001 free; ~46 min for steps 1-4 plus the 140 s unload wait;
+# SIGTERM-only; evidence lands in scratch/report49_*_<epoch>.*
+```
+
+**Evidence files (this run, epoch 1794124681):**
+`scratch/report49_run_1794124681.log` (the driver timeline),
+`scratch/report49_backend_1794124681.log` (the real backend's log, 3,068 lines),
+`scratch/report49_monitor_1794124681.jsonl` (2,798 RSS + 291 status entries),
+`scratch/report49_summary_1794124681.json` (machine-readable),
+`scratch/report49_1794124681.md` (the saved report body, judged above),
+`scratch/report49_graph_dump.json` (the 43 nodes + 58 edge facts used for the
+faithfulness check), `scratch/report49_document.txt` (the input, sha256 above),
+`scratch/report49_notes.md` (working notes) and the driver itself
+`scratch/report49_run.py`. The first run is kept as the record of finding 3:
+`scratch/report49_*_1794122026.*`.
+<tool_call>{"name": "panorama_search", …}
