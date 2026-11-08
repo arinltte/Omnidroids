@@ -366,3 +366,98 @@ def test_ontology_generation_fails_precisely_on_an_impossible_prompt(monkeypatch
 
     assert "64-token context window" in str(excinfo.value)
     assert calls == [], "an impossible prompt must never reach generation"
+
+
+# --- (e) the JSON retry's message must be true about the budget it sends ----
+
+class _TruncatingThenValidCompletions:
+    """The /v1 hop where the FIRST JSON attempt truncates at the caller's cap.
+
+    ``_RunnerBackedCompletions`` always answers ``stop``; the measured #51 chain
+    needs a first attempt at ``finish_reason=length`` with an unusable partial
+    body, then a valid one — exactly what the fake returns.
+    """
+
+    def __init__(self, runner):
+        self.runner = runner
+        self.seen = 0
+
+    def create(self, **kwargs):
+        self.seen += 1
+        if self.seen == 1:
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    finish_reason="length",
+                    message=SimpleNamespace(content='{"entity_types": ['),
+                )],
+            )
+        return _RunnerBackedCompletions(self.runner).create(**kwargs)
+
+
+def _llm_client_for_truncation(runner) -> LLMClient:
+    client = object.__new__(LLMClient)
+    client.api_key = "local"
+    client.base_url = "http://testserver/v1"
+    client.model = "LFM3-1.7B-MLX-4bit"
+    client.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=_TruncatingThenValidCompletions(runner))
+    )
+    return client
+
+
+def test_a_truncation_retry_names_the_budget_it_actually_sends(mlx, caplog, monkeypatch):
+    """The retry must not claim a cap it did not drop, or hide a smaller one.
+
+    Measured in #51's probe (``fix51_backend_1794154252.log``): attempt 1 at
+    4096 truncated, attempt 2 was logged as "retrying content generation without
+    an output token cap" while the runner had just resolved its own
+    ``MLX_MAX_TOKENS`` and sent that. The log is what an operator reads during a
+    502, so it must state the number the retry really uses — and, when the local
+    default is below the budget that just truncated, name the knob to raise.
+    Behaviour is unchanged: the retry still sends no caller cap.
+    """
+    runner, calls = mlx
+    monkeypatch.setattr(Config, "MLX_MAX_TOKENS", 2048)   # the library's number
+    client = _llm_client_for_truncation(runner)
+
+    with caplog.at_level(logging.WARNING, logger="app.utils.llm_client"):
+        parsed = client.chat_json(
+            messages=[{"role": "user", "content": "short prompt"}],
+            max_tokens=8192,
+            max_attempts=2,
+        )
+
+    assert parsed["analysis_summary"] == "ok", "the valid second body parses"
+    logged = caplog.text
+    assert "without an output token cap" not in logged, (
+        "the old claim is false: the local runner resolves MLX_MAX_TOKENS and "
+        "sends it, so 'without a cap' reads as 'uncapped' when it is not"
+    )
+    # the number the truncated attempt asked for, and the one the retry uses
+    assert "8192" in logged
+    assert f"MLX_MAX_TOKENS={Config.MLX_MAX_TOKENS}" in logged
+    # and the knob to raise, because 2048 is below the 8192 that just truncated
+    assert "MLX_MAX_TOKENS" in logged and "raise" in logged.lower()
+    # behaviour unchanged: the retry sends no caller-supplied cap
+    assert calls[-1]["kwargs"]["max_tokens"] == Config.MLX_MAX_TOKENS
+
+
+def test_an_uncapped_json_retry_is_not_asked_for_a_knob(mlx, caplog):
+    """A caller that never sent a cap has nothing to compare against."""
+
+    runner, calls = mlx
+    client = _llm_client_for_truncation(runner)
+
+    with caplog.at_level(logging.WARNING, logger="app.utils.llm_client"):
+        client.chat_json(
+            messages=[{"role": "user", "content": "short prompt"}],
+            max_tokens=None,
+            max_attempts=2,
+        )
+
+    logged = caplog.text
+    assert "without an output token cap" not in logged
+    assert "MLX_MAX_TOKENS" not in logged, (
+        "no caller budget was truncated, so there is no knob comparison to make"
+    )
+    assert calls[-1]["kwargs"]["max_tokens"] == Config.MLX_MAX_TOKENS
