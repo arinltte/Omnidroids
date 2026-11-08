@@ -114,11 +114,22 @@ def _imported_modules(tree: ast.Module):
 
 
 def _called_names(tree: ast.Module):
-    """``(lineno, callee name)`` for every plain ``Name(...)`` call."""
+    """``(lineno, callee name)`` for every call: ``Name(...)`` or ``mod.Name(...)``.
+
+    A constructor reached through a module attribute is the same constructor —
+    graphiti's own examples spell ``KuzuDriver`` as
+    ``graphiti_core.driver.kuzu_driver.KuzuDriver(...)`` — so the attribute
+    form is yielded as well, or a service could build a graph client through an
+    imported module and never appear in the boundary scan.
+    """
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
             yield (node.lineno, node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            yield (node.lineno, node.func.attr)
 
 
 def test_graph_backend_sdks_are_imported_only_by_their_adapter():
@@ -229,6 +240,30 @@ def test_only_the_adapter_constructs_the_decided_backend_engine():
     )
 
 
+def test_the_constructor_scan_sees_attribute_form_calls():
+    """``module.GraphitiZepClient(...)`` is a constructor call too.
+
+    A module that builds a graph client or the decided backend's engine through
+    a module attribute reaches the same constructor as a bare
+    ``GraphitiZepClient(...)`` — graphiti's own examples spell it that way
+    (``graphiti_core.driver.kuzu_driver.KuzuDriver(...)``) — so the boundary
+    scan must name both spellings or the attribute form is a hole in it.
+    """
+
+    tree = ast.parse(
+        "import app.utils.graphiti_zep as graphiti_zep\n"
+        "from graphiti_core.driver import kuzu_driver\n"
+        "engine = kuzu_driver.KuzuDriver()\n"
+        "client = graphiti_zep.GraphitiZepClient()\n"
+    )
+    names = {name for _lineno, name in _called_names(tree)}
+    assert names >= {"GraphitiZepClient", "KuzuDriver"}, (
+        "an attribute-form constructor call escaped the boundary scan; "
+        "_called_names must yield the callee's attribute name as well as its "
+        "bare Name form: " + repr(sorted(names))
+    )
+
+
 def test_services_reach_the_graph_through_the_seam_client_names():
     """Every services-layer driver of ``client.graph.*`` owns a seam client.
 
@@ -260,12 +295,19 @@ def test_services_reach_the_graph_through_the_seam_client_names():
     )
 
 
-def test_shipped_graph_backend_resolves_to_the_decided_seam():
+def test_shipped_graph_backend_resolves_to_the_decided_seam(monkeypatch):
     """The shipped ``GRAPH_BACKEND=graphiti`` selection resolves to the adapter.
 
     This is the durable half of "the seam is the shipped default": the value the
     repo ships (``.env.example``, and the environment ``docs/GRAPH_BAKEOFF.md``
     records) must keep selecting the local Graphiti client that ADR 0001 kept.
+
+    The two halves are deliberately separated. The *recorded* half reads
+    ``.env.example`` — a file in the repo, so it is the same on a fresh clone.
+    The *resolution* half exercises ``Config``, whose default is ``zep`` (a real
+    deployment only overrides it through a local, git-ignored ``.env``), so the
+    decision is pinned explicitly instead of inheriting whatever ``.env`` the
+    machine happens to carry.
     """
 
     from app.config import Config
@@ -281,6 +323,8 @@ def test_shipped_graph_backend_resolves_to_the_decided_seam():
         "the shipped graph backend is not the decided one; ADR 0001 keeps "
         "Graphiti + embedded Kuzu: " + repr(shipped)
     )
+
+    monkeypatch.setattr(Config, "GRAPH_BACKEND", "graphiti")
 
     zep.clear_zep_client_cache()
     client = zep.get_zep_client()

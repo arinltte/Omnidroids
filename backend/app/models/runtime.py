@@ -414,7 +414,7 @@ class GGUFRunner(_BaseRunner):
                         return
             except Exception as exc:
                 last_err = str(exc)
-            await _sleep(0.5)
+            await asyncio.sleep(0.5)
         await self.unload()
         raise RuntimeError(f"llama-server did not become healthy: {last_err}")
 
@@ -486,11 +486,6 @@ class GGUFRunner(_BaseRunner):
                     pass
         self._loaded = False
         logger.info("gguf unloaded %s (rss after=%dMB)", self.name, self.memory_footprint_mb())
-
-
-async def _sleep(sec: float) -> None:
-    import asyncio
-    await asyncio.sleep(sec)
 
 
 # ---------------------------------------------------------------------------
