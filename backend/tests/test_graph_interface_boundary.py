@@ -114,11 +114,22 @@ def _imported_modules(tree: ast.Module):
 
 
 def _called_names(tree: ast.Module):
-    """``(lineno, callee name)`` for every plain ``Name(...)`` call."""
+    """``(lineno, callee name)`` for every call: ``Name(...)`` or ``mod.Name(...)``.
+
+    A constructor reached through a module attribute is the same constructor —
+    graphiti's own examples spell ``KuzuDriver`` as
+    ``graphiti_core.driver.kuzu_driver.KuzuDriver(...)`` — so the attribute
+    form is yielded as well, or a service could build a graph client through an
+    imported module and never appear in the boundary scan.
+    """
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
             yield (node.lineno, node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            yield (node.lineno, node.func.attr)
 
 
 def test_graph_backend_sdks_are_imported_only_by_their_adapter():
@@ -226,6 +237,30 @@ def test_only_the_adapter_constructs_the_decided_backend_engine():
     assert not offenders, (
         "the decided backend's engine is constructed outside its adapter "
         f"({ADAPTER}):\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_constructor_scan_sees_attribute_form_calls():
+    """``module.GraphitiZepClient(...)`` is a constructor call too.
+
+    A module that builds a graph client or the decided backend's engine through
+    a module attribute reaches the same constructor as a bare
+    ``GraphitiZepClient(...)`` — graphiti's own examples spell it that way
+    (``graphiti_core.driver.kuzu_driver.KuzuDriver(...)``) — so the boundary
+    scan must name both spellings or the attribute form is a hole in it.
+    """
+
+    tree = ast.parse(
+        "import app.utils.graphiti_zep as graphiti_zep\n"
+        "from graphiti_core.driver import kuzu_driver\n"
+        "engine = kuzu_driver.KuzuDriver()\n"
+        "client = graphiti_zep.GraphitiZepClient()\n"
+    )
+    names = {name for _lineno, name in _called_names(tree)}
+    assert names >= {"GraphitiZepClient", "KuzuDriver"}, (
+        "an attribute-form constructor call escaped the boundary scan; "
+        "_called_names must yield the callee's attribute name as well as its "
+        "bare Name form: " + repr(sorted(names))
     )
 
 
