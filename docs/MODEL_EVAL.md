@@ -1157,6 +1157,90 @@ is the mlx-community **4-bit** MiniCPM5-2B (the re-measure seam), **not** this 8
 Deletion is an owner/follow-up action — not performed here; `models/registry.json` `roles`
 unchanged.
 
+##### Retention applied (issue #54, 2026-11-09) — the eight DELETE candidates are gone, 25.64 GiB freed
+
+Owner decision **B** of spec #50: the retention *recommendation* recorded by item 9 above
+and by item 11's wave verdict was applied. The eight measured-failed candidate trees were
+deleted from repo-root `models/` and deregistered from the git-ignored
+`models/registry.json`. This note is **additive** — no measurement text above was
+rewritten, and the restore commands per model are recorded so every deletion is one
+`hf download` to reverse.
+
+**Evidence.** `scratch/fix54_retention_1794156524.log` / `.json` (verify-before-delete →
+delete → deregister → before/after free space) and `scratch/fix54_keeper_loadcheck_1794156731.log`
+/ `.json` (each keeper loaded, generated and hard-unloaded through `MLXRunner` via
+`ModelManager.phase`). Ollama asserted stopped before and after both runs; no
+`python3.11` left idle after either.
+
+**Deleted (8 trees, 27 319 159 601 B ≈ 25.44 GiB of weights).** Every tree was verified
+before deletion: the registry entry's `path`/`repo_id` names it, its `*.safetensors`
+bytes were compared against the registry's recorded `size_bytes`, and HF's own download
+metadata (`.cache/huggingface/download/*.metadata`) pins the commit the weights came from.
+
+| model | weights bytes (registry `size_bytes`) | delta | HF commit | verdict recorded |
+|---|---|---|---|---|
+| Qwen3.5-4B-MLX-4bit | 3 034 300 695 (3 061 132 920) | 0.88 % | `32f3e8ecf654` | item 5 — 0/12, 0/6, deterministic |
+| gemma-4-e2b-it-4bit | 3 550 670 554 (3 583 088 661) | 0.90 % | `238767527555` | item 6 — 0/12, 0/6, deterministic |
+| SmolLM3-3B-4bit | 1 730 051 993 (1 747 380 812) | 0.99 % | `d3a7e0594d66` | item 8 — 6/12, 2/6, moving |
+| granite-4.2-3b-MLX-4bit | 2 059 005 430 (1 917 873 152) | **7.36 %** | `4fe06f1699e9` | item 1 — pre-wave, OUT |
+| Qwen3.5-4B-MLX-8bit | 5 136 696 107 (5 163 528 300) | 0.52 % | `5319bbbe4f1c` | item 11.1 — 0/12, 0/6 |
+| gemma-4-e2b-it-8bit | 5 866 581 158 (5 899 036 930) | 0.55 % | `03dcf209f3f5` | item 11.2 — 0/12, 0/6 |
+| SmolLM3-3B-8bit | 3 267 527 051 (3 284 855 870) | 0.53 % | `316f091e3498` | item 11.3 — 11/12 node, 2/6 full |
+| MiniCPM5-2B-MLX-8bit | 2 674 326 613 (2 684 403 346) | 0.38 % | `a498d49ae5ca` | item 11.4 — 0/12, 0/6, regressed vs its 4-bit |
+
+**The one recorded deviation.** `granite-4.2-3b-MLX-4bit`'s registry `size_bytes`
+(1 917 873 152 B) is 7.36 % below the tree's actual weights (2 059 005 430 B): that
+registry entry is an ad-hoc placeholder (`added_at` `2026-11-08T00:00:00Z`, the only one
+carrying a literal `Z`), not a measured registration, while the tree is a complete
+download (weights are 99.65 % of the dir). It was verified by the HF commit hash
+(`4fe06f1…`) rather than waived through; the deviation is recorded here instead of being
+silently tolerated.
+
+**Kept (3 trees — exactly what `models/` and `models/registry.json` now contain):**
+
+| model | weights bytes | why it stays |
+|---|---|---|
+| LFM3-1.7B-MLX-4bit | 973 083 386 | production `small` |
+| Ornith-1.5-9B-MLX-6bit | 7 276 346 365 | production `big` |
+| MiniCPM5-2B-mlx-4Bit | 1 416 035 480 | sole near-miss (3-5/6) — the single re-measure seam |
+
+**Space.** Free on the `models/` volume went **71.47 GiB → 97.11 GiB (+25.64 GiB)**; the
+Δ (`df`) is larger than the weights deleted because each tree also carried its tokenizer,
+`config.json` and `.cache/huggingface` download metadata.
+
+**Roles unchanged.** `models/registry.json` `roles.small` = `LFM3-1.7B-MLX-4bit` and
+`roles.big` = `Ornith-1.5-9B-MLX-6bit`, byte-identical before and after (asserted by the
+probe). ADR 0001 is untouched: this changes which weights are on disk, not which model
+serves any step.
+
+**The three keepers still load** (post-deletion, through `MLXRunner`: load → a 16-token
+generation → hard unload, all three `reply='OK'` with `finish_reason=stop`, resident
+0 MB and 0 MB of live `mx.array` after each unload):
+
+| keeper | footprint | process RSS before → during → after |
+|---|---|---|
+| LFM3-1.7B-MLX-4bit | 1618 MB | 59 → 1618 → 841 MB |
+| MiniCPM5-2B-mlx-4Bit | 2080 MB | 694 → 2080 → 1026 MB |
+| Ornith-1.5-9B-MLX-6bit | 1303 MB (mmap-lazy) | 721 → 1303 → 697 MB |
+
+**Restore (one command per deleted model, from the confined `HF_HOME=<repo>/.cache/hf`):**
+
+```bash
+hf download mlx-community/Qwen3.5-4B-MLX-4bit    --local-dir models/Qwen3.5-4B-MLX-4bit
+hf download mlx-community/gemma-4-e2b-it-4bit    --local-dir models/gemma-4-e2b-it-4bit
+hf download mlx-community/SmolLM3-3B-4bit        --local-dir models/SmolLM3-3B-4bit
+hf download lmstudio-community/granite-4.2-3b-MLX-4bit --local-dir models/granite-4.2-3b-MLX-4bit
+hf download mlx-community/Qwen3.5-4B-MLX-8bit    --local-dir models/Qwen3.5-4B-MLX-8bit
+hf download mlx-community/gemma-4-e2b-it-8bit    --local-dir models/gemma-4-e2b-it-8bit
+hf download mlx-community/SmolLM3-3B-8bit        --local-dir models/SmolLM3-3B-8bit
+hf download abenzerps/MiniCPM5-2B-MLX-8bit       --local-dir models/MiniCPM5-2B-MLX-8bit
+```
+
+Each restore is followed by re-registering the model in the Model Manager (the local
+`models/registry.json` is git-ignored, so a fresh checkout has no registry entries at
+all). Restoring is **not** performed here — reverse cost is one download per model, which
+is why the deletions are safe.
+
 ## 8. Reproduce
 
 ```bash
