@@ -34,10 +34,14 @@ the incumbent's own full-mode rate is **3/6** — the same gate — so leaving t
 records the fact that *no* 4-bit has been found that clears 6/6 with 0 skips, rather
 than silently promoting a model that fails the bar (or demoting the one that is still
 the best 4-bit on the node path). The 1.7B's blocker is `ExtractedEdges` verbosity past
-M1's 4096-token clamp, a class none of the four candidates shares. The 8-bit probes are
-the conditional follow-up (#46, in isolation — 8-bit cannot co-reside with the 9B).
-Full comparison table, failure classes and the weights-retention decision: **§7c
-item 9**.
+M1's 4096-token clamp, a class none of the four candidates shares. The 8-bit probes were
+the conditional follow-up (#46, in isolation — 8-bit cannot co-reside with the 9B) and are
+**now measured: all four 8-bit are also below the bar** (Qwen 0/6 & gemma 0/6, deterministic
+`$defs` echo; SmolLM3 node 11/12 but full 2/6 on `ExtractedEdges` truncation; MiniCPM5-2B-8bit
+0/6 — *worse* than its 4-bit). **No 8-bit clears 6/6 with 0 skips either**, so the `small`
+role stays put; the gap is now wider than the 4-bit wave left it (8-bit is slower and larger,
+and still cannot co-reside with the 9B). Full comparison table, failure classes and the
+weights-retention decision: **§7c item 9**; the 8-bit wave and its verdict: **§7c item 11**.
 
 ### 1b. Step → model assignment (owner decision, issue #22)
 
@@ -1053,6 +1057,105 @@ probe whose node path the re-quant genuinely fixed (11/12 vs the 4-bit's 6/12) a
 slowest of the wave (full mean 115.5 s/call), but the surviving blocker is one step
 deeper — `ExtractedEdges` truncated JSON + a wrong-shape node, not the schema echo that
 killed probes 1-2. **Probe 3 is OUT for the wave; `small` role unchanged.**
+
+##### 11.4 MiniCPM5-2B-MLX-8bit (probe 4) — **OUT, 0/12 & 0/6, and WORSE than its 4-bit**
+
+Weights `abenzerps/MiniCPM5-2B-MLX-8bit` — **not** `openbmb/MiniCPM5-2B` (not
+`mlx_vlm`-usable without conversion, per the ticket) — downloaded once, from `backend/`,
+to `models/MiniCPM5-2B-MLX-8bit` (`HF_HOME=<repo>/.cache/hf`; log
+`scratch/check46_download_minicpm5_2b8.log`) — **2,684,403,346 B / 2.50 GB** (weights-only,
+excl `.cache`), 12 files, ~81 s, exit 0; `model.safetensors` 2,674,326,613 B (2.49 GiB),
+~1.88× the mlx-community 4-bit's 1.33 GB (item 6); **`shasum` matches the shipped
+`SHA256SUMS.txt`**; `~/.cache/huggingface` delta 0 KB. `mlx_vlm.load(path)` through the
+app's `MLXRunner`, offline (log `scratch/check46_loadcheck_minicpm5_2b8.log`):
+`config.model_type=llama`, `LlamaForCausalLM`, `config.json`
+`quantization={bits:8, group_size:64, mode:affine}`, hidden 2048 / 42 layers, vocab
+130 560, resident rss 3111 MB at load, unload OK. Registered in `models/registry.json`
+(`models` only; `roles` unchanged).
+
+| run | log | graph id | ok | skip | class | llm s | mean | calls/chunk | backend_rss | sampler peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| node ×2 | `check46_minicpm5_2b8_node.log` | `check46_minicpm5_2b8_1794097664` | **0/12** | 12 | wrong-keys 12 | 173.3 | 14.4 s | 1.1 | 180→3224 MB | 3225 MB |
+| full ×1 | `check46_minicpm5_2b8_full.log` | `check46_minicpm5_2b8_1794097879` | **0/6** | 6 | wrong-keys 6 | 75.0 | 12.5 s | 1.0 | 180→3216 MB | 3216 MB |
+
+**Failure class — wrong-keys, a `$defs` schema echo on `extract_nodes` — a REGRESSION
+against the 4-bit.** Every call returns `finish_reason=stop` with the inlined schema
+(`keys=['$defs','properties']`), so `ExtractedEntities` raises `extracted_entities
+Field required`; full mode aborts on the first call (1.0 calls/chunk). **Not M1's clamp.**
+The striking result: the mlx-community **4-bit** MiniCPM (item 6) was the best 4-bit
+candidate — node 12/12, full 3-5/6 — while this **8-bit** is 0/12 and 0/6. Up-quantizing
+moved MiniCPM *onto* the echo side (it now dies one step earlier, on `extract_nodes`, like
+Qwen/gemma). This is a conversion/prompting effect, not a capacity limit: the same
+weights at 4-bit clear the node prompt and at 8-bit echo it. Deterministic across all 12
+node chunks and all 6 full chunks.
+
+**Verdict — FAIL, does not reach the bar, and 8-bit made the best 4-bit worse.** Full
+mode **0/6** against the 6/6-0-skip bar — the *closest* 4-bit candidate (MiniCPM,
+3-5/6, item 6) becomes 0/6 one quant up. **Probe 4 is OUT for the wave; `small` role
+unchanged, and the mlx-community 4-bit MiniCPM stays the re-measure seam over this
+8-bit.**
+
+##### Wave verdict — issue #46: no 8-bit probe cleared the bar; the gap is wider than #45 left it
+
+Combined table over the four 8-bit probes (row of record; every cell cites its `scratch/`
+log), beside the 4-bit wave (§7c item 9) and the incumbent:
+
+| model (probe) | node ok/12 — log | full ok/6, row of record — log | mean s/call | calls/chunk | sampler peak — `.rss` | failure class (the prompt that skips the chunk) |
+|---|---|---|---|---|---|---|
+| Qwen3.5-4B-MLX-8bit (11.1) | **0/12** @ 21.4 s — `check46_qwen4b8_node.log` | **0/6** @ 22.1 s — `check46_qwen4b8_full.log` | 21.4 / 22.1 | 1.0 / 1.0 | 3693 / 2409 MB | wrong-keys — `ExtractedEntities` `$defs` echo on `extract_nodes` (same class as the 4-bit, item 5) |
+| gemma-4-e2b-it-8bit (11.2) | **0/12** @ 12.0 s — `check46_gemma4e2b8_node.log` | **0/6** @ 12.9 s — `check46_gemma4e2b8_full.log` | 12.0 / 12.9 | 1.0 / 1.0 | 4013 / 3956 MB | wrong-keys — `ExtractedEntities` `$defs` echo on `extract_nodes` (same class as the 4-bit, item 7) |
+| SmolLM3-3B-8bit (11.3) | **11/12** @ 21.5 s — `check46_smollm3_3b8_node.log` | **2/6** @ 115.5 s — `check46_smollm3_3b8_full.log` | 21.5 / 115.5 | 1.0 / 3.0 | 3926 / 3956 MB | malformed-json 3 (`ExtractedEdges` truncated JSON, `finish_reason=stop`, **not** the clamp) + other-validation 1 (wrong-shape node) |
+| MiniCPM5-2B-MLX-8bit (11.4) | **0/12** @ 14.4 s — `check46_minicpm5_2b8_node.log` | **0/6** @ 12.5 s — `check46_minicpm5_2b8_full.log` | 14.4 / 12.5 | 1.1 / 1.0 | 3225 / 3216 MB | wrong-keys — `ExtractedEntities` `$defs` echo on `extract_nodes` — **regression** vs the 4-bit (item 6: 12/12, 3-5/6) |
+| *ref.* LFM3-1.7B-MLX-4bit (incumbent) | 12/12 @ 7.9 s (§7b)* | 3/6 (§7b) / **5/6** (item 10, on the split) | 7.9 / 72.4-308.7 | — | 1713-1729 MB | malformed-json — `ExtractedEdges` verbosity at M1's **4096 clamp** (`finish_reason=length`) |
+
+**Against the bar.** The bar is full mode **6/6 with 0 skips** (spec #30). **No 8-bit
+probe cleared it** — the best 8-bit full result is SmolLM3-3B-8bit's **2/6**, below the
+incumbent 1.7B's own 3/6 (§7c item 4) and the on-split 5/6 (item 10), below the 9B's
+6/6 reference, and far below the closest 4-bit (MiniCPM, 3-5/6, item 6). Because no probe
+reached 6/6, no "clears the bar — role change is the owner's decision" line applies, and
+no extra reproducibility run was warranted for any probe (item d's *at or near the bar*
+branch was never met: best 8-bit = 2/6).
+
+**vs the 4-bit wave: 8-bit did not help, and one case it hurt.** Qwen and gemma stayed
+deterministically at 0/6 with the *identical* `$defs` echo (items 5, 7) — the failure is
+a prompt/template interaction, not a capacity or quantization shortfall, so 8-bit changes
+nothing but the cost. SmolLM3's *node* path genuinely improved (11/12 vs the 4-bit's 6/12)
+but full stayed 2/6 on an `ExtractedEdges` truncation one step deeper. MiniCPM5-2B
+**regressed** (3-5/6 → 0/6): the abenzerps 8-bit conversion moved the best 4-bit onto the
+echo side.
+
+**Per-call latency** (mean s/call, node/full): 8-bit is uniformly **slower** than its
+4-bit — Qwen 21.4/22.1 vs 14.0/14.3, gemma 12.0/12.9 vs 6.4/6.8, MiniCPM 14.4/12.5 vs
+4.0/10.9, SmolLM3 21.5/115.5 vs 55.4/59.9. Decode is memory-bandwidth-bound on the
+weight bytes, so ~1.7-1.9× the 4-bit's weight size costs ~1.5-2× the wall time per call.
+
+**RAM (per run recorded — the explicit acceptance item).** Each probe ran **in isolation**
+(one model resident; Ollama asserted closed before/after by the harness; a stray
+`run.py`/harness proc aborts the launch). Sampler peak of the backend `run.py` was
+**2.4-4.0 GB**, ~1.3-2× the 4-bit peaks, byte-matched to the ~1.7-1.9× weight growth
+(mmap pages scale with generation volume, so a probe's node run and full run peak
+differently on identical weights — e.g. Qwen 3693 node / 2409 full). **No 8-bit clears
+the co-residence gate either:** beside the 9B (7298 MB) under the ≥2 GB rule a model may
+use ≤1918 MB (§7c item 9), and every 8-bit is ≥2.49 GB of weights — so an 8-bit cannot
+co-reside with the 9B just as it cannot with the incumbent, and no `small` role change is
+on the table. **`small` role unchanged throughout the wave.**
+
+**Where this leaves the open item.** #45 recorded *no 4-bit clears 6/6 with 0 skips* and
+fired #46 to test whether 8-bit fixes that. It does not: **neither 4-bit nor 8-bit clears
+the bar**, the best of each wave is a different partial (4-bit MiniCPM 5/6 on the node
+then moving edge classes; 8-bit SmolLM3 11/12 node then 2/6 full on `ExtractedEdges`
+truncation), and 8-bit is strictly more expensive on speed and RAM. `small` **stays
+`LFM3-1.7B-MLX-4bit`**; the gap is wider than #45 left it and remains an OPEN item, its
+blocker still M1's 4096 clamp on the incumbent's `ExtractedEdges` verbosity (item 10).
+
+**Retention (a recommendation — nothing deleted here, disk 72 GB free, not tight).** The
+four 8-bit dirs total **~17.0 GB of weights** (`size_bytes` 5 163 528 300 + 5 899 036 930
++ 3 284 855 870 + 2 684 403 346 B). Like the 4-bit wave, none has a resident slot beside
+the 9B and none cleared the bar, so all four are **DELETE** candidates for the owner (one
+`hf download <repo> --local-dir models/<name>` each to restore); the seam worth keeping
+is the mlx-community **4-bit** MiniCPM5-2B (the re-measure seam), **not** this 8-bit.
+Deletion is an owner/follow-up action — not performed here; `models/registry.json` `roles`
+unchanged.
 
 ## 8. Reproduce
 
