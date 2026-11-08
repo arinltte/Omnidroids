@@ -56,6 +56,15 @@ class Config:
     # 并发推理上限（同一模型实例内的并行请求数）与上下文窗口
     LLM_NUM_PARALLEL = int(os.environ.get('LLM_NUM_PARALLEL', '4'))
     LLM_CONTEXT_LENGTH = int(os.environ.get('LLM_CONTEXT_LENGTH', '8192'))
+    # Explicit output budget for the ontology call (step-1 prepare; #51).
+    # The call used to pass max_tokens=None ("let the provider use its
+    # model-specific limit"), MLXRunner.generate drops a falsy cap, and mlx-vlm
+    # then applies its own DEFAULT_MAX_TOKENS=2048 (mlx_vlm/generate/common.py):
+    # the 1.7B's ontology JSON truncated (finish_reason=length -> HTTP 502) and
+    # the byte-identical retry truncated again. The budget therefore travels
+    # with the request and the runner logs the value it resolved, so it is never
+    # inherited silently. Keep it below LLM_CONTEXT_LENGTH minus the prompt.
+    ONTOLOGY_LLM_MAX_TOKENS = int(os.environ.get('ONTOLOGY_LLM_MAX_TOKENS', '4096'))
     # 单次本地 LLM 调用的超时（秒）。长 prefill 冷启动需要余量；须小于前端上限(1800s)
     LLM_PROXY_TIMEOUT = int(os.environ.get('LLM_PROXY_TIMEOUT', '1800'))
     

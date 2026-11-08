@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pytest
 
 from app.utils.llm_client import LLMClient, LLMResponseError
@@ -23,6 +25,35 @@ class ProviderError(RuntimeError):
         super().__init__(body.get("error", {}).get("message", "provider error"))
         self.status_code = status_code
         self.body = body
+
+
+def _api_status_error(status_code: int, body: dict):
+    """A real ``openai.APIStatusError``: the shape the /v1 proxy answers with."""
+
+    request = httpx.Request("POST", "http://testserver/v1/chat/completions")
+    response = httpx.Response(status_code, request=request, json=body)
+    return openai.APIStatusError(
+        body.get("error", {}).get("message", "local model error"),
+        response=response,
+        body=body,
+    )
+
+
+GUARD_MESSAGE = (
+    "local model error: prompt of 17189 tokens exceeds the 262144-token "
+    "context window of model LFM3-1.7B-MLX-4bit; largest contributor: user "
+    "message #2, 15798 tokens. Remedies: shorten the documents or the "
+    "simulation requirement, or (operational cap only) raise "
+    "LLM_CONTEXT_LENGTH. An oversized prompt is never silently truncated."
+)
+
+
+def _guard_failure(status_code: int = 502):
+    """What LLMClient sees when MLX's context guard rejects a prompt (#51)."""
+
+    return _api_status_error(status_code, {
+        "error": {"message": GUARD_MESSAGE, "type": "prompt_too_long"}
+    })
 
 
 def _response(content, *, finish_reason="stop", include_choice=True):
@@ -257,3 +288,45 @@ def test_chat_json_reports_missing_choices_without_retrying_forever():
         )
 
     assert len(sequence.calls) == 2
+
+
+def test_chat_json_reraises_the_context_guard_failure_verbatim():
+    """#51: the guard's precise message must survive the hop to the caller."""
+    sequence = CompletionSequence(_guard_failure())
+    client = _client_for(sequence)
+
+    with pytest.raises(LLMResponseError) as captured:
+        client.chat_json(messages=[{"role": "user", "content": "Return JSON"}])
+
+    assert str(captured.value) == GUARD_MESSAGE
+    assert captured.value.finish_reason is None
+    assert len(sequence.calls) == 1, "a guard rejection is not retryable"
+
+
+def test_chat_json_leaves_other_provider_failures_untouched():
+    """No regression: only the tagged guard rejection is re-routed."""
+    sequence = CompletionSequence(
+        _api_status_error(502, {"error": {"message": "boom",
+                                          "type": "upstream_unavailable"}}),
+    )
+    client = _client_for(sequence)
+
+    with pytest.raises(openai.APIStatusError) as captured:
+        client.chat_json(messages=[{"role": "user", "content": "Return JSON"}])
+
+    assert captured.value.status_code == 502
+    assert not isinstance(captured.value, LLMResponseError)
+    assert len(sequence.calls) == 1
+
+
+def test_chat_json_leaves_an_untyped_provider_failure_alone():
+    sequence = CompletionSequence(
+        _api_status_error(500, {"error": {"message": "boom"}}),
+    )
+    client = _client_for(sequence)
+
+    with pytest.raises(openai.APIStatusError) as captured:
+        client.chat_json(messages=[{"role": "user", "content": "Return JSON"}])
+
+    assert captured.value.status_code == 500
+    assert len(sequence.calls) == 1

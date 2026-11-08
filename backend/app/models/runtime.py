@@ -180,6 +180,100 @@ class _BaseRunner:
 
 
 # ---------------------------------------------------------------------------
+# Token accounting
+# ---------------------------------------------------------------------------
+class PromptTooLongError(RuntimeError):
+    """The assembled prompt does not fit the model's own context window.
+
+    Raised BEFORE generation (#51), so an impossible request fails here instead
+    of at prefill. ``LLM_CONTEXT_LENGTH`` is deliberately NOT the threshold: it
+    is an operational cap (it feeds ``llm_monitor``'s ``num_ctx`` report), while
+    the checkpoint's own ``max_position_embeddings`` is the capability — the
+    1.7B and the 9B both declare 262144. Blocking at the cap would take a path
+    that demonstrably works: ACCEPTANCE_12 §2 records the owner's 17,189-token
+    ontology prompt as "context, not the cause", with the endpoint succeeding
+    (43 s) while that prompt was in place. Over the cap but inside the model
+    window therefore only warns; over the model window raises.
+    """
+
+
+def _context_window_from_config(config) -> Optional[int]:
+    """``max_position_embeddings`` from a model config, text_config honoured.
+
+    The 9B (Qwen3_5-style) checkpoint nests it under ``text_config`` while the
+    1.7B and the MiniCPM checkpoints keep it top level, so both are read.
+    """
+
+    for holder in (config, getattr(config, "text_config", None)):
+        if holder is None:
+            continue
+        try:
+            window = int(getattr(holder, "max_position_embeddings", None))
+        except (TypeError, ValueError):
+            continue
+        if window > 0:
+            return window
+    return None
+
+
+def _model_context_window(model) -> Optional[int]:
+    """The loaded model's own context window, or None when it declares none."""
+
+    return _context_window_from_config(getattr(model, "config", None))
+
+
+def _model_tokenizer(processor) -> Any:
+    """The tokenizer object mlx_vlm's own generation path tokenizes with."""
+
+    return getattr(processor, "tokenizer", None) or processor
+
+
+def _count_tokens(tokenizer, text: str) -> Optional[int]:
+    """Exact token count for ``text``, or None when the tokenizer cannot."""
+
+    try:
+        return len(tokenizer.encode(text))
+    except Exception:
+        pass
+    try:
+        return len(tokenizer(text)["input_ids"])
+    except Exception:
+        return None
+
+
+def _prompt_size_report(
+    prompt: str,
+    messages: List[Dict[str, Any]],
+    processor,
+    limit: int,
+) -> tuple[Optional[int], Optional[tuple[str, int]]]:
+    """(prompt tokens, largest message as (label, tokens)) — an exact count.
+
+    The count comes from the model's own tokenizer, the same one
+    ``mlx_vlm.generate`` feeds the templated prompt to, so the guard compares
+    real tokens instead of estimating from a character count. The per-message
+    attribution is only counted once the prompt is over ``limit`` (nothing needs
+    attributing otherwise), and ``(None, None)`` means no tokenizer is reachable
+    on the processor, so the size is unknown.
+    """
+
+    tokenizer = _model_tokenizer(processor)
+    total = _count_tokens(tokenizer, prompt)
+    if total is None or total <= limit:
+        return total, None
+    largest: Optional[tuple[str, int]] = None
+    for index, message in enumerate(messages):
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            content = ""
+        tokens = _count_tokens(tokenizer, content) or 0
+        label = f"{message.get('role', 'user')} message #{index + 1}"
+        if largest is None or tokens > largest[1]:
+            largest = (label, tokens)
+    return total, largest
+
+
+# ---------------------------------------------------------------------------
 # MLX (macOS, in-process)
 # ---------------------------------------------------------------------------
 class MLXRunner(_BaseRunner):
@@ -264,13 +358,77 @@ class MLXRunner(_BaseRunner):
                     f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages
                 )
             kwargs: Dict[str, Any] = {"verbose": False}
+            effective_max_tokens: Optional[int] = None
             if max_tokens and max_tokens > 0:
-                kwargs["max_tokens"] = int(max_tokens)
+                # The caller's explicit budget: forwarded verbatim, which is
+                # what the ontology call used to lose (#51).
+                effective_max_tokens = int(max_tokens)
+                kwargs["max_tokens"] = effective_max_tokens
+            # else: the caller asked for no clamp, so the kwarg stays absent and
+            # the provider applies its own default. That is a decision, not an
+            # accident -- it is logged below rather than inherited silently.
             if temperature and temperature > 0:
                 # mlx_vlm resolves sampling defaults from the checkpoint's
                 # generation_config.json when temperature is omitted; pass it
                 # through only when the caller asks for it.
                 kwargs["temperature"] = float(temperature)
+            # The prompt we are about to submit, counted with the model's own
+            # tokenizer. Two thresholds, deliberately: the checkpoint's own
+            # window is the hard one, LLM_CONTEXT_LENGTH the operational cap.
+            operational_cap = int(Config.LLM_CONTEXT_LENGTH)
+            model_window = _model_context_window(self._model)
+            if model_window is None:
+                # The checkpoint declares no window, so the operational cap is
+                # the only limit we have. Logged, so the guard is never
+                # silently disabled and never silently widened.
+                model_window = operational_cap
+                logger.info(
+                    "mlx %s: model config declares no context window; "
+                    "falling back to the operational cap %d tokens",
+                    self.name, operational_cap,
+                )
+            prompt_tokens, largest_message = _prompt_size_report(
+                prompt, messages, self._processor, model_window
+            )
+            logger.info(
+                "mlx %s generate: prompt_tokens=%s max_tokens=%s "
+                "operational_cap=%d model_window=%d",
+                self.name,
+                prompt_tokens if prompt_tokens is not None else "?",
+                effective_max_tokens
+                if effective_max_tokens is not None
+                else "provider default",
+                operational_cap,
+                model_window,
+            )
+            if prompt_tokens is not None and prompt_tokens > model_window:
+                over_by = prompt_tokens - model_window
+                contributor = (
+                    f"; largest contributor: {largest_message[0]}, "
+                    f"{largest_message[1]} tokens"
+                    if largest_message
+                    else ""
+                )
+                raise PromptTooLongError(
+                    f"prompt of {prompt_tokens} tokens exceeds the "
+                    f"{model_window}-token context window of model "
+                    f"{self.name} (over by {over_by}){contributor}. Remedies: "
+                    f"shorten the documents or the simulation requirement, or "
+                    f"(operational cap only) raise LLM_CONTEXT_LENGTH. An "
+                    f"oversized prompt is never silently truncated."
+                )
+            if prompt_tokens is not None and prompt_tokens > operational_cap:
+                # Loud, not blocking: the checkpoint handles it (the 1.7B
+                # declares 262144), so the owner's own document keeps working
+                # while the number that no longer matches the cap is visible.
+                logger.warning(
+                    "mlx %s prompt_tokens=%d exceeds the operational cap "
+                    "LLM_CONTEXT_LENGTH=%d but fits the model's %d-token "
+                    "window (headroom %d); raise LLM_CONTEXT_LENGTH or "
+                    "shorten the prompt",
+                    self.name, prompt_tokens, operational_cap, model_window,
+                    model_window - prompt_tokens,
+                )
             result = mlx_vlm.generate(self._model, self._processor, prompt, **kwargs)
             finish = result.finish_reason or ("length" if max_tokens else "stop")
             return GenResult(
