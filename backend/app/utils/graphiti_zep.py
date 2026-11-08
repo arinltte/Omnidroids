@@ -1385,6 +1385,30 @@ class GraphitiZepClient:
     def _types_for(self, graph_id: str):
         return _build_graphiti_types(_load_ontology_spec(graph_id))
 
+    def _leave_for_resume(self, record: Dict[str, Any], item: Dict[str, Any], where: str) -> None:
+        """The runtime loop is gone (SIGTERM shutdown): checkpoint and stop.
+
+        One helper for both call sites — the loop-head check and the mid-episode
+        ``except`` — because they are the same shutdown with the same required
+        outcome: the record is saved as the resume plan, the chunk keeps whatever
+        state it had (``pending`` on a first pass), the batch stays non-terminal,
+        and the iteration stops so ``_ensure_ingestion`` / ``batch.get`` re-enter
+        it on restart.
+
+        ``where`` is inserted verbatim into the log line — ``""`` at the loop
+        head, ``" inside chunk %s"`` mid-episode — so each site keeps the wording
+        it had when the two bail-outs were written out twice.
+        """
+
+        self._save_record(record)
+        index = item["sequence_index"]
+        logger.warning(
+            "graphiti runtime loop is gone%s; leaving %s %s for resume",
+            where,
+            "it" if where else f"chunk {index}",
+            item["status"],
+        )
+
     async def _ingest_record(self, record: Dict[str, Any]) -> None:
         from graphiti_core.nodes import EpisodeType
 
@@ -1405,15 +1429,7 @@ class GraphitiZepClient:
                 continue
             if _runtime_loop_gone(runtime_loop):
                 # The runtime loop is gone (SIGTERM shutdown): stop iterating.
-                # Remaining chunks keep whatever state they had (``pending`` on
-                # a first pass) and the batch stays non-terminal, so
-                # `_ensure_ingestion` / `batch.get` re-enter it on restart.
-                self._save_record(record)
-                logger.warning(
-                    "graphiti runtime loop is gone; leaving chunk %s %s for resume",
-                    item["sequence_index"],
-                    item["status"],
-                )
+                self._leave_for_resume(record, item, "")
                 return
             async with lock:
                 try:
@@ -1439,14 +1455,9 @@ class GraphitiZepClient:
                     item["error"] = None
                 except Exception as exc:
                     if _runtime_loop_gone(runtime_loop, exc):
-                        # Same shutdown as above, caught mid-episode: the chunk
-                        # never landed, so it stays resumable and the record
-                        # keeps serving as the resume plan.
-                        self._save_record(record)
-                        logger.warning(
-                            "graphiti runtime loop is gone inside chunk %s; leaving it %s for resume",
-                            item["sequence_index"],
-                            item["status"],
+                        # Same shutdown as above, caught mid-episode.
+                        self._leave_for_resume(
+                            record, item, f" inside chunk {item['sequence_index']}"
                         )
                         return
                     # Fault isolation (M2): one bad chunk must not abort the whole
