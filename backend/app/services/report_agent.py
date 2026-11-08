@@ -833,11 +833,29 @@ REACT_FORCE_FINAL_MSG = "已达到工具调用限制，请直接输出 Final Ans
 
 # #53: the body this section just produced was a tool call, JSON or nothing — the
 # only thing the agent is never allowed to do is ship it.
-REACT_REGENERATE_MSG = (
-    "【格式错误】你刚才的输出不能作为章节正文：它是一个工具调用而不是分析内容。\n"
-    "工具调用只能在检索阶段输出，且必须以 <tool_call> 标签包裹；章节正文必须是连贯的"
-    "分析文字。请只基于已获取的检索结果重新撰写本章节正文，直接输出正文内容。"
-)
+# One message per artefact class, because the regeneration is only useful if the
+# model is told the failure it ACTUALLY made: "it's a tool call" is false (and
+# actively misleading) for a body that was only JSON or only whitespace.
+REACT_REGENERATE_MSGS = {
+    "only a tool-call artefact": (
+        "【格式错误】你刚才的输出不能作为章节正文：它是一个工具调用而不是分析内容。\n"
+        "工具调用只能在检索阶段输出，且必须以 <tool_call> 标签包裹；章节正文必须是连贯的"
+        "分析文字。请只基于已获取的检索结果重新撰写本章节正文，直接输出正文内容。"
+    ),
+    "only JSON": (
+        "【格式错误】你刚才的输出不能作为章节正文：它是无法阅读的结构化数据（纯JSON）"
+        "而不是分析文字。\n章节正文必须是连贯的分析文字，请把这些信息改写成句子和段落，"
+        "不要输出 JSON。请只基于已获取的检索结果重新撰写本章节正文，直接输出正文内容。"
+    ),
+    "empty/whitespace-only": (
+        "【格式错误】你刚才的输出不能作为章节正文：它是空的（只有空白字符）。\n"
+        "请基于已获取的检索结果重新撰写本章节正文，直接输出正文内容。"
+    ),
+}
+
+# Kept for compatibility with the constant name used in the failing-path logs.
+REACT_REGENERATE_MSG = REACT_REGENERATE_MSGS["only a tool-call artefact"]
+
 
 # ── Chat prompt ──
 
@@ -1237,6 +1255,18 @@ class ReportAgent:
     ARTEFACT_JSON = "only JSON"
 
     @staticmethod
+    def regenerate_message(reason: str) -> str:
+        """The regeneration instruction for the artefact class the body was.
+
+        One message per class, because a regeneration is only useful if the
+        model is told the failure it ACTUALLY made -- #53's prompt test: a body
+        that was only JSON must not be regenerated under an instruction about
+        tool calls.
+        """
+        return REACT_REGENERATE_MSGS.get(
+            reason, REACT_REGENERATE_MSGS[ReportAgent.ARTEFACT_TOOL_CALL])
+
+    @staticmethod
     def _section_body_artefact_reason(body: str) -> Optional[str]:
         """Why `body` can never ship as a report section — or None when it can.
 
@@ -1317,7 +1347,9 @@ class ReportAgent:
             )
 
         messages.append({"role": "assistant", "content": candidate})
-        messages.append({"role": "user", "content": REACT_REGENERATE_MSG})
+        # Tell the model the failure it actually made: a body that was only JSON
+        # must not be regenerated under an instruction about tool calls (#53).
+        messages.append({"role": "user", "content": self.regenerate_message(reason)})
         response = self.llm.chat(messages=messages, temperature=0.5, max_tokens=4096)
 
         if response is not None:
@@ -1341,7 +1373,7 @@ class ReportAgent:
     @staticmethod
     def check_report_word_band(
         report_markdown: str,
-        section_word_counts: List[tuple],
+        section_word_counts: Optional[List[tuple]] = None,
         min_words: Optional[int] = None,
         max_words: Optional[int] = None,
     ) -> None:
@@ -1355,13 +1387,17 @@ class ReportAgent:
             report_markdown: the assembled report body — what gets measured.
             section_word_counts: [(section title, word count), ...] in report
                 order — the attribution that tells an operator WHICH section
-                broke the band, not just that something did.
+                broke the band, not just that something did. Optional: the band
+                verdict is the primary signal and must never be blocked by the
+                attribution data (a caller measuring a saved body — or a harness
+                — may not have the section list).
             min_words / max_words: the band; None reads the config knob
                 (``REPORT_WORD_COUNT_MIN`` / ``REPORT_WORD_COUNT_MAX``) at call
                 time, so the check follows .env with no code change.
         """
         min_words = Config.REPORT_WORD_COUNT_MIN if min_words is None else min_words
         max_words = Config.REPORT_WORD_COUNT_MAX if max_words is None else max_words
+        section_word_counts = section_word_counts or []
 
         measured = ReportAgent._count_report_words(report_markdown)
         if min_words <= measured <= max_words:

@@ -438,7 +438,13 @@ class MLXRunner(_BaseRunner):
                     model_window - prompt_tokens,
                 )
             result = mlx_vlm.generate(self._model, self._processor, prompt, **kwargs)
-            finish = result.finish_reason or ("length" if max_tokens else "stop")
+            # The budget this request actually SUBMITTED decides how a missing
+            # finish_reason is read. Keying off the caller's optionality (the
+            # old `max_tokens`) reported "stop" for a request truncated at the
+            # budget this runner resolved -- the silent inheritance #51 removed.
+            finish = result.finish_reason or (
+                "length" if effective_max_tokens is not None else "stop"
+            )
             return GenResult(
                 content=(getattr(result, "text", "") or "").strip(),
                 finish_reason=finish,
