@@ -48,6 +48,10 @@ class Project:
     
     # 配置
     simulation_requirement: Optional[str] = None
+    # Mirrors Config.DEFAULT_CHUNK_SIZE (pinned by
+    # tests/test_chunk_size_default.py): a new project must not carry a stale
+    # per-project default that overrides the config fallback in api/graph.py.
+    # 1500 was measured and NOT adopted — see the comment on DEFAULT_CHUNK_SIZE.
     chunk_size: int = 500
     chunk_overlap: int = 50
     

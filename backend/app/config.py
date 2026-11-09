@@ -143,6 +143,12 @@ class Config:
     ALLOWED_EXTENSIONS = {'pdf', 'md', 'txt', 'markdown'}
     
     # 文本处理配置
+    # 1500 was measured on the acceptance document (HANDOFF §9 B, 2026-11-09):
+    # 15 chunks instead of 53, so a ~4x faster first pass (~27 min vs ~108 min), but
+    # the yield did NOT hold — 1/4 slice chunks landed (baseline 9/30), the failure
+    # mode broadened from edge calls to node calls, and 40 % of edge calls still
+    # truncated at M1's clamp (27 % of all calls). The owner's stop line was ~20 %.
+    # So 500 stays until the truncation itself is fixed; re-measure the size after.
     DEFAULT_CHUNK_SIZE = 500  # 默认切块大小
     DEFAULT_CHUNK_OVERLAP = 50  # 默认重叠大小
     
