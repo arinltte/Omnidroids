@@ -809,3 +809,15 @@ adapter entries (`OpenAIProvider.generate_typed` / `generate_structured`) plus
 every prompt on the wire (`openai`'s `chat.completions.create`). No seam
 behaviour is patched; the extractor, graph, vector store, `ContextGraph` and
 checkpoint are fresh per run.
+
+---
+
+**Candidate trees deleted (2026-11-09).** ADR 0001 decided Graphiti, the losing trees
+were unused by the app, and the owner authorised reclaiming the space:
+`Prediction/cognee` and `Prediction/semantica` are removed (~2.9 GB). To re-run the
+bake-off, clone the candidates back — `git clone https://github.com/topoteretes/cognee.git`
+and `https://github.com/semantica-agi/semantica.git` — and use the §6 protocol as written
+(isolated venvs, never the project venv). Kept: `Prediction/graphiti` (the incumbent source
+reference this doc cites) and `Prediction/MiroFish` (the validated reference tree). Every
+measured number above still cites its log under `Omnidroids/scratch/`, so this decision is
+not re-derivable from the deleted trees and does not need them.
