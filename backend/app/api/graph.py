@@ -465,7 +465,7 @@ def _build_graph_impl(project_id_override: str = None, force_override: bool = No
         {
             "project_id": "proj_xxxx",  // 必填，来自接口1
             "graph_name": "图谱名称",    // 可选
-            "chunk_size": 1500,         // 可选，默认同 Config.DEFAULT_CHUNK_SIZE
+            "chunk_size": 500,          // 可选，默认500
             "chunk_overlap": 50         // 可选，默认50
         }
         

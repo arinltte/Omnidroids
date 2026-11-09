@@ -1,37 +1,44 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """HANDOFF §9 B guard: the chunk-size default, and the chunker at that size.
 
-The owner approved **chunk size 500 -> 1500** (2026-11-09) because the measured
-graph build spends 85 % of its wall time inside the LLM while a chunk carries
-only ~5 % of the tokens its prompts consume: 53 chunks of a mean 443 chars each,
-one fixed-overhead edge prompt per chunk, 59 % of those calls truncated at the
-clamp. The knob is ``Config.DEFAULT_CHUNK_SIZE`` (``app/config.py``) and the
-per-project parameter (``app/models/project.py``).
+The owner approved an experiment, not a value: **chunk size 500 -> 1500**, on the
+reasoning that a chunk carries only ~5 % of the tokens of the fixed-overhead
+prompts it triggers, so 53 chunks of a mean 443 chars should cost ~3x what 19
+would. **Measured 2026-11-09 on a 4-chunk slice of the acceptance document
+(LFM3-1.7B-MLX-4bit, chunk_size 1500, `scratch/chunkslice_1500_1p7b_*`):**
 
-This guard pins what the change is allowed to mean, and nothing more:
+| | |
+|---|---|
+| chunks on the document | 53 -> **15** (the ~3x did happen) |
+| ok / skipped on the slice | **1 ok / 3 skipped** (baseline run: 9 / 21 of 30) |
+| mean seconds per chunk | 109.2 (baseline ~120) |
+| mean seconds per LLM call | 28.1 |
+| **edge calls truncated at M1's clamp** | **2 of 5 = 40 %** (baseline 17 / 29 = 59 %) |
 
-1. **The default itself** — ``Config.DEFAULT_CHUNK_SIZE`` is the approved 1500
-   and the overlap did not move with it (``DEFAULT_CHUNK_OVERLAP`` stays 50; a
-   silently widened overlap would change which content a chunk covers).
+40 % is above the ~20 % line the owner set as the stop condition, the yield did
+not hold (1/4 landed, and the failure mode broadened from edge calls to node
+calls), so **1500 was not adopted and 500 stayed**. The full record lives in
+HANDOFF §9 B; this file only pins what the measurement decided and keeps the
+chunker honest at that size, so the experiment is not re-run blind:
+
+1. **The default** — ``Config.DEFAULT_CHUNK_SIZE`` is 500 and the overlap did
+   not move with it (``DEFAULT_CHUNK_OVERLAP`` stays 50; a silently widened
+   overlap would change which content a chunk covers).
 2. **The per-project parameter stays consistent** — a new ``Project`` carries
    the same default as the config, so ``_build_graph``'s fallback chain
    (``app/api/graph.py``: ``chunk_size or Config.DEFAULT_CHUNK_SIZE``) resolves
    one value, and the API's own documented default (``app/api/graph.py``'s
    docstring) agrees with it.
-3. **The chunker is coherent at the new size** — on a hermetic zh corpus: no
-   empty chunk, no chunk longer than the size, and the overlap is honoured
-   exactly (each chunk starts where the previous chunk's tail begins, never a
-   gap and never more than ``chunk_overlap`` of duplicated text). This is what
-   makes "19 chunks instead of 53" a saving rather than a silent content change.
-4. **The shape actually changed** — the same corpus chunked at the new default
-   yields materially fewer, materially larger chunks (the whole point of the
-   experiment), and the resulting chunks still pass the production batch
-   validator (``GraphBuilderService.validate_batch_chunks``), including its
-   10 000-character per-item cap.
+3. **The chunker is coherent at that size** — on a hermetic zh corpus: no empty
+   chunk, no chunk longer than the size, and the overlap is honoured exactly
+   (each chunk starts where the previous chunk's tail begins, never a gap and
+   never more than ``chunk_overlap`` of duplicated text). This is what makes
+   "53 chunks instead of 19" a cost, not a content change.
+4. **The chunks still pass the batch validator** — including its 10 000-char
+   per-item cap, which is the limit a larger chunk would eventually meet.
 
 Pure filesystem/text assertions: no app import of a live model, no network, no
-Kuzu. The measured numbers themselves live in ``HANDOFF.md`` §9 B; this file
-only keeps the knob from drifting back.
+Kuzu. The measured numbers themselves live in ``HANDOFF.md`` §9 B.
 """
 
 import re
@@ -45,11 +52,16 @@ from app.services.text_processor import TextProcessor
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GRAPH_API = REPO_ROOT / "backend" / "app" / "api" / "graph.py"
 
-# The owner-approved default (HANDOFF §9 B). A change here is an owner decision,
-# not a refactor: it re-shapes every future graph build.
-APPROVED_CHUNK_SIZE = 1500
+# The value the 2026-11-09 measurement decided (HANDOFF §9 B): 1500 was tried
+# and NOT adopted, so 500 is the pinned default. Changing this is an owner
+# decision backed by a measurement, not a refactor.
+DECIDED_CHUNK_SIZE = 500
 # The overlap that shipped with 500 and must not move with the size.
-APPROVED_CHUNK_OVERLAP = 50
+DECIDED_CHUNK_OVERLAP = 50
+# The measured, rejected alternative. Kept as a constant so the rejection is
+# checkable: if a session re-raises the default to this without re-measuring,
+# the default pin below fails with a message naming it.
+REJECTED_CHUNK_SIZE = 1500
 
 # A hermetic zh corpus: deterministic, sentence-boundary separated like the
 # acceptance document, long enough to produce several chunks at either size.
@@ -103,20 +115,37 @@ def _chunk_spans(text: str, chunks: list, chunk_size: int) -> list:
 
 
 # --- 1. the default itself -------------------------------------------------
-def test_default_chunk_size_is_the_owner_approved_size():
-    assert Config.DEFAULT_CHUNK_SIZE == APPROVED_CHUNK_SIZE, (
+def test_default_chunk_size_is_the_measured_decision():
+    assert Config.DEFAULT_CHUNK_SIZE == DECIDED_CHUNK_SIZE, (
         f"Config.DEFAULT_CHUNK_SIZE is {Config.DEFAULT_CHUNK_SIZE}, not the "
-        f"owner-approved {APPROVED_CHUNK_SIZE} (HANDOFF §9 B). Changing it back "
-        "to 500 re-measures the slow graph build, not the fast one."
+        f"measured {DECIDED_CHUNK_SIZE} (HANDOFF §9 B)"
+    )
+    if Config.DEFAULT_CHUNK_SIZE == REJECTED_CHUNK_SIZE:
+        raise AssertionError(
+            f"DEFAULT_CHUNK_SIZE is back at {REJECTED_CHUNK_SIZE}, which the "
+            "2026-11-09 measurement did NOT adopt: 1 ok / 3 skipped on the slice "
+            "(baseline 9 / 21 of 30) and 40 % of edge calls truncated at M1's "
+            "clamp, above the owner's ~20 % stop line. Re-measure, with the "
+            "truncation fixed, before re-raising it — see HANDOFF §9 B."
+        )
+
+
+def test_default_chunk_size_is_not_the_unmeasured_alternative():
+    """The rejected 1500 may come back only with a new measurement."""
+
+    assert Config.DEFAULT_CHUNK_SIZE != REJECTED_CHUNK_SIZE, (
+        f"DEFAULT_CHUNK_SIZE is {REJECTED_CHUNK_SIZE} — the measured rejection was "
+        "reverted without a new measurement (1 ok / 3 skipped, 40 % of edge calls "
+        "truncated). HANDOFF §9 B carries the numbers."
     )
 
 
 def test_default_chunk_overlap_did_not_move_with_the_size():
     """The overlap is a separate knob: moving it changes content coverage."""
 
-    assert Config.DEFAULT_CHUNK_OVERLAP == APPROVED_CHUNK_OVERLAP, (
+    assert Config.DEFAULT_CHUNK_OVERLAP == DECIDED_CHUNK_OVERLAP, (
         f"Config.DEFAULT_CHUNK_OVERLAP is {Config.DEFAULT_CHUNK_OVERLAP}, not "
-        f"{APPROVED_CHUNK_OVERLAP}. The §9 B approval covers the size only."
+        f"{DECIDED_CHUNK_OVERLAP}. The §9 B approval covers the size only."
     )
 
 
@@ -171,7 +200,7 @@ def test_graph_api_documents_the_config_default():
     )
 
 
-# --- 3. the chunker is coherent at the new size ---------------------------
+# --- 3. the chunker is coherent at the decided size --------------------
 def test_chunker_at_the_default_emits_coherent_chunks():
     corpus = _zh_corpus(target_chars=9000)
     chunks = TextProcessor.split_text(
@@ -209,29 +238,31 @@ def test_chunker_at_the_default_emits_coherent_chunks():
         )
 
 
-# --- 4. the shape changed, and the batch limits still hold ----------------
-def test_default_chunking_yields_materially_fewer_chunks_than_500():
-    corpus = _zh_corpus(target_chars=9000)
-    at_default = TextProcessor.split_text(
-        corpus, Config.DEFAULT_CHUNK_SIZE, Config.DEFAULT_CHUNK_OVERLAP)
-    at_500 = TextProcessor.split_text(corpus, 500, Config.DEFAULT_CHUNK_OVERLAP)
+# --- 4. the decision's evidence stays in the repo ---------------------
+def test_handoff_records_the_measured_chunk_size_decision():
+    """HANDOFF §9 B must keep carrying the 1500 measurement, not the hope.
 
-    assert len(at_default) < len(at_500), (
-        f"{len(at_default)} chunks at the default vs {len(at_500)} at 500 — the "
-        "size change did not reduce the chunk count, so it cannot reduce the "
-        "number of fixed-overhead LLM calls either"
+    Mirrors ``test_windows_untested_note.py``: a prose guard over the steering
+    document, because the number in ``app/config.py`` means nothing without the
+    reason it sits there. If §9 B is edited back to "not yet measured", this
+    fails rather than letting the repo forget that 1500 was tried.
+    """
+
+    handoff = (REPO_ROOT / "HANDOFF.md").read_text(encoding="utf-8")
+    section = handoff.split("### B.", 1)[-1].split("### C.", 1)[0]
+    assert "1500" in section, (
+        "HANDOFF §9 B no longer mentions the 1500 alternative — the measured "
+        "rejection this guard records has been edited away"
     )
-    ratio = len(at_500) / len(at_default)
-    assert 2.0 <= ratio <= 4.5, (
-        f"500 -> default is a {ratio:.2f}x chunk-count reduction; §9 B's approval "
-        "projects ~3x. A ratio this far off means the corpus (or the splitter) "
-        "no longer represents the measured run."
+    outcome = re.search(r"not adopted|rejected|revert", section, re.IGNORECASE)
+    assert outcome, (
+        "HANDOFF §9 B no longer states the outcome of the 1500 measurement "
+        "(not adopted / rejected / revert) — the record must say what was decided"
     )
-    mean_default = sum(len(c) for c in at_default) / len(at_default)
-    mean_500 = sum(len(c) for c in at_500) / len(at_500)
-    assert mean_default > mean_500 * 2.0, (
-        f"mean chunk is {mean_default:.0f} chars at the default vs {mean_500:.0f} "
-        "at 500 — the content per chunk did not actually grow"
+    assert re.search(r"\d+\s*%", section), (
+        "HANDOFF §9 B no longer carries a measured percentage — the figure that "
+        "decided 1500 (40 % of edge calls truncated at M1's clamp) is the whole "
+        "argument, so it belongs here and not only in an issue comment"
     )
 
 
