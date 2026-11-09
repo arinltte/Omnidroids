@@ -36,7 +36,9 @@ corresponding source, including over a network).
   Semantica are evaluated as alternatives in a bake-off (`HANDOFF.md` §3.2).
 - **Model runtime** — models load on demand and are **hard-unloaded from memory
   when each task finishes** (a binding requirement). Backends: **MLX** (macOS,
-  in-process via `mlx-vlm`) and **llama.cpp GGUF** (cross-platform incl. Windows).
+  in-process via `mlx-vlm`) and **llama.cpp GGUF** (cross-platform incl. Windows by
+  design — but the Windows path is **untested on Windows**; see *Windows (GGUF-only)*
+  below).
   One internal OpenAI-compatible `/v1` surface everything points at. (The legacy
   Ollama path was removed in B5 — nothing in the runtime depends on it.)
 - **Two models, one 16 GB device** — a small model for parallel work (ingestion,
@@ -85,7 +87,8 @@ runtime):
 1. installs deps only when missing (`uv sync`, `npm install`);
 2. builds the SPA once if `frontend/dist` is absent (`npm run build`);
 3. exports `HF_HOME=<repo>/.cache/hf` — every HuggingFace artifact stays inside
-   the folder;
+   the folder (verified on macOS; `Omnidroids.bat:51` does the same on Windows, but
+   only by static reading — **untested on Windows**, see *Windows (GGUF-only)* below);
 4. starts the backend and opens **only** the main page;
 5. stops with **SIGTERM only** (`Ctrl+C`) — never `kill -9` (Kuzu WAL).
 
@@ -94,14 +97,62 @@ runtime):
 OPEN_BROWSER=0 ./Omnidroids.sh     # don't auto-open the browser
 ```
 
-On Windows: double-click `Omnidroids.bat`. Stop by closing the backend window
-(or the launcher window); never `taskkill /f` the backend.
+On Windows (**untested on Windows** — see *Windows (GGUF-only)* below): double-click
+`Omnidroids.bat`. Stop by closing the backend window (or the launcher window); never
+`taskkill /f` the backend (Kuzu WAL). This instruction has never been run on Windows.
 
 Run the backend directly instead (useful for development):
 
 ```bash
 cd backend && uv run python run.py     # API + built SPA on http://localhost:5001
 ```
+
+### Windows (GGUF-only) — untested on Windows hardware
+
+`Omnidroids.bat` and the Windows GGUF runtime have **never been executed on a Windows
+box** (there is no such machine here), so this section records the honest ceiling (#27):
+what a **static reading** of the committed code guarantees, and what remains **untested
+on Windows** and must not be claimed. macOS claims here and elsewhere are measured;
+Windows is a static reading only.
+
+**Known-good by static reading (never executed on Windows):**
+- **Launcher ordering** — `HF_HOME` is set at `Omnidroids.bat:51`, *before* the backend
+  spawns at `:62`; the `cmd /c` child inherits it, and `setlocal` (`:16`) scopes it to
+  the launcher (it cannot leak into your shell).
+- **Three-layer HF confinement** — `downloader.py:359-377` `_confine_hf_cache()` sets
+  `HF_HOME`/`HF_HUB_CACHE`/`HF_XET_CACHE` and rewrites `huggingface_hub.constants`
+  (the hub resolves those *at import time*, so the launcher's env var alone can land
+  too late in an already-imported worker), and `config.py:200`'s `HF_CACHE_DIR` default
+  is already repo-rooted — so even with no env var, nothing is written outside
+  `.cache/hf`; no app code writes to `~/.cache`.
+- **cwd-independence** — `cd /d "%ROOT%"` (`:21`) after `ROOT=%~dp0` (`:23`).
+- **SPA serving** — every path goes through `os.path.join` / `send_from_directory`
+  (`app/__init__.py:145-166`), so the separator is `os.sep`; no hard-coded `/`.
+- **UTF-8 console** — `run.py:8-9` and `logger.py:13-23`.
+- **Port short-circuit** — the `:5001`-already-listening check (`Omnidroids.bat:56`).
+
+**NOT known-good — never executed on Windows:**
+- `Omnidroids.bat` end to end; first-run `uv sync` / `npm install`.
+- one real GGUF download + load; the `llama-server` Windows process and its SIGTERM
+  unload; GGUF quant availability.
+- the Kuzu `0.11.3` embedded driver opening a graph on Windows (`pyproject.toml:34`).
+- SPA serving on Windows.
+- the `taskkill /F` escalation path (`simulation_runner.py:935`).
+
+**Recorded discrepancy (not papered over).** Two different process trees involve
+`taskkill`, and they must not be conflated. `Omnidroids.bat:78` (and the Run step above)
+say **never `taskkill /f` the backend** — that protects the Flask backend at `:5001`,
+whose Kuzu WAL needs a clean close. The `taskkill /F` at `simulation_runner.py:935`
+escalates for an **OASIS simulation subprocess tree** (`:919`'s Windows branch, after a
+graceful `taskkill /T` timeout); that tree carries no Kuzu WAL and is the Windows twin
+of the repo's SIGTERM-only rule. One protects the graph-backed backend; the other tears
+down a spawned simulation tree.
+
+**Turn "untested" into "tested."** A Windows owner: double-click `Omnidroids.bat`, or in
+a terminal `cd backend && uv run python run.py`. Confirm no artifact is written under
+`%USERPROFILE%\.cache` (the Windows twin of the macOS proof in
+`scratch/e2e_download_probe.py`), then **paste the launcher output / `logs/backend.log`
+and one real GGUF download+load log into issue #27**.
 
 ## Model runtime (Phase 1)
 
@@ -110,8 +161,9 @@ demand / hard-unload when the task ends** (a binding requirement). Backends:
 
 - **mlx** — macOS Apple Silicon, in-process (`mlx-lm`); unload clears the Metal
   cache so our own RSS falls.
-- **gguf** — cross-platform incl. Windows; a `llama-server` subprocess; unload is
-  a `SIGTERM` (never `kill -9`) so the whole process, and its RAM, is released.
+- **gguf** — cross-platform incl. Windows (a designed target, but the Windows path is
+  **untested on Windows**); a `llama-server` subprocess; unload is a `SIGTERM` (never
+  `kill -9`) so the whole process, and its RAM, is released. Never executed on Windows.
 
 Verify the hard-unload guarantee (HANDOFF §12.3):
 
