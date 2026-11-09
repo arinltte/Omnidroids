@@ -126,8 +126,9 @@ Windows is a static reading only.
   is already repo-rooted — so even with no env var, nothing is written outside
   `.cache/hf`; no app code writes to `~/.cache`.
 - **cwd-independence** — `cd /d "%ROOT%"` (`:21`) after `ROOT=%~dp0` (`:23`).
-- **SPA serving** — every path goes through `os.path.join` / `send_from_directory`
-  (`app/__init__.py:145-166`), so the separator is `os.sep`; no hard-coded `/`.
+- **SPA path construction / separator** — every path is built with `os.path.join` /
+  `send_from_directory` (`app/__init__.py:145-166`), so the separator is `os.sep`; no
+  hard-coded `/`; end-to-end SPA *serving* on Windows is **not** known-good — see below.
 - **UTF-8 console** — `run.py:8-9` and `logger.py:13-23`.
 - **Port short-circuit** — the `:5001`-already-listening check (`Omnidroids.bat:56`).
 
