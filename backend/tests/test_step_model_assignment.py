@@ -261,22 +261,17 @@ def test_resolve_orders_name_then_slot_then_the_small_role(tmp_path, monkeypatch
     assert key == SMALL and entry["name"] == SMALL
 
 
-@pytest.mark.xfail(
-    reason="finding 24: .env's LLM_MODEL_NAME (4-bit) shadows the owner-swapped "
-           "roles.small (8-bit), so steps 1-3 still load the 4-bit — the owner's "
-           "call: move .env to the 8-bit or empty it. Strict: this fails as "
-           "XPASS the moment the divergence clears, so the marker comes off.",
-    strict=True,
-)
 def test_named_default_request_lands_on_the_small_role_model():
     """Finding 24: the live steps 1-3 invariant, on the real registry.
 
     Steps 1-3 carry ``Config.LLM_MODEL_NAME`` as the request name, so they serve
     ``roles.small``'s model only while that config value names that same model
     (or is empty/uninstalled). The owner's swap put ``roles.small`` on the 8-bit
-    while git-ignored ``.env`` still names the 4-bit, so this FAILS until the
-    owner decides which one moves (HANDOFF §9 D / finding 24) — hence the strict
-    xfail: the suite stays green now and the gate screams when it clears.
+    and emptied ``.env``'s ``LLM_MODEL_NAME`` (decision 2026-11-09) so the name no
+    longer shadows the role — resolution falls through to step 3 and steps 1-3
+    serve the 8-bit. This test is the standing guard: if a future ``.env`` or a
+    code change makes ``_resolve`` bypass an unnamed request away from the
+    ``small`` role again, this fails.
 
     ``models/`` is git-ignored: a clean checkout has no local registry and
     nothing local to assert, so the test skips there.
