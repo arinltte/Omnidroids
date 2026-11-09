@@ -38,7 +38,7 @@ import re
 from pathlib import Path
 
 from app.config import Config
-from app.models.project import Project
+from app.models.project import Project, ProjectStatus
 from app.services.graph_builder import GraphBuilderService
 from app.services.text_processor import TextProcessor
 
@@ -121,8 +121,20 @@ def test_default_chunk_overlap_did_not_move_with_the_size():
 
 
 # --- 2. the per-project parameter stays consistent ------------------------
+def _new_project() -> Project:
+    """A project as ``ProjectManager.create_project`` builds one (chunk knobs defaulted)."""
+
+    return Project(
+        project_id="proj_test",
+        name="chunk default",
+        status=ProjectStatus.CREATED,
+        created_at="2026-11-09T00:00:00+00:00",
+        updated_at="2026-11-09T00:00:00+00:00",
+    )
+
+
 def test_project_default_matches_the_config_default():
-    project = Project(project_id="proj_test", name="chunk default")
+    project = _new_project()
     assert project.chunk_size == Config.DEFAULT_CHUNK_SIZE, (
         f"Project.chunk_size defaults to {project.chunk_size} but "
         f"Config.DEFAULT_CHUNK_SIZE is {Config.DEFAULT_CHUNK_SIZE}; a new project "
@@ -132,7 +144,7 @@ def test_project_default_matches_the_config_default():
 
 
 def test_project_default_survives_a_dict_round_trip():
-    project = Project(project_id="proj_test", name="chunk default")
+    project = _new_project()
     reloaded = Project.from_dict(project.to_dict())
     assert reloaded.chunk_size == Config.DEFAULT_CHUNK_SIZE
     assert reloaded.chunk_overlap == Config.DEFAULT_CHUNK_OVERLAP

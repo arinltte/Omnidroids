@@ -143,7 +143,11 @@ class Config:
     ALLOWED_EXTENSIONS = {'pdf', 'md', 'txt', 'markdown'}
     
     # 文本处理配置
-    DEFAULT_CHUNK_SIZE = 500  # 默认切块大小
+    # HANDOFF §9 B (owner-approved 2026-11-09, measured): a 500-char chunk carries
+    # ~5 % of the tokens of the fixed-overhead prompts it triggers, so the graph
+    # build's cost is per chunk, not per content — 53 chunks at 500 vs 15 at 1500
+    # on the acceptance document. Overlap is unchanged at 50.
+    DEFAULT_CHUNK_SIZE = 1500  # 默认切块大小
     DEFAULT_CHUNK_OVERLAP = 50  # 默认重叠大小
     
     # OASIS模拟配置
