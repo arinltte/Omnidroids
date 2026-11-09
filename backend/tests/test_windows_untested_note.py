@@ -21,8 +21,6 @@ measured, and this guard exists only to keep the Windows caveat honest.
 import re
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 README = REPO_ROOT / "README.md"
 HANDOFF = REPO_ROOT / "HANDOFF.md"
