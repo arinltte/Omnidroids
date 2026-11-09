@@ -1,7 +1,7 @@
 <template>
   <div class="monitor">
     <header class="m-header">
-      <div class="brand">MIROFISH</div>
+      <div class="brand">OMNIDROIDS</div>
       <div class="title">本地 AI 监控 / LLM Monitor</div>
       <div class="spacer"></div>
       <span class="conn" :class="connClass"><span class="dot"></span>{{ connText }}</span>
