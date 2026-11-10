@@ -232,11 +232,15 @@ gold / borderline / junk tiers and on the gold edge set:
 ```
 
 The second pass was requested as a separate, context-isolated annotator that never
-sees this file. Until it lands, the gold's `status` stays
-`frozen-pending-owner-review`: **first-use only**, and every number above is
-adjudication-dependent (a second annotator moving an entity between gold and junk
-moves recall by 1/7 = 14.3 points, which is the scale of every entity decision
-here).
+sees this file. **First attempt failed:** the child read both source files, explicitly
+confirmed it had opened no gold file (so its independence was intact), then stalled
+without ever writing its answer — 90 minutes of preambles, no output file, run
+timed out. Nothing was salvageable and nothing was contaminated. A second, bounded
+attempt is scoped to the decisions that move the numbers (§7). Until a second
+adjudication lands and is compared here, the gold's `status` stays
+`frozen-pending-owner-review`: **first-use only**, and every number in §5 is
+adjudication-dependent (one entity moving between gold and junk moves recall by
+1/7 = 14.3 points, which is the scale of every entity decision on this slice).
 
 ## 7. What still has to happen before an arm is ranked
 
@@ -251,6 +255,21 @@ here).
    edges mean one entity is worth 14.3 recall points and one edge 20 edge-recall
    points.** An arm that moves fewer than two entities is indistinguishable from
    noise on this slice; say so in the report rather than shipping a decimal.
+
+### 7.1 Second-adjudication status (why the gold is not yet a standard)
+
+| # | attempt | outcome |
+|---|---|---|
+| 1 | 2026-11-17, full independent annotation, context-isolated child, no gold file seen | **failed** — read both sources, confirmed no gold exposure, then stalled and wrote nothing (90 min timeout). No output, no contamination, nothing salvageable |
+| 2 | 2026-11-17, bounded re-run: gold entity set + gold edge set + six contested tier calls only | in flight |
+
+The re-run is deliberately narrowed to the decisions that move a number: a
+disagreement on *which junk term* only re-labels the junk taxonomy, whereas a
+disagreement on a tier border moves recall/precision by 14.3 points. If the child
+cannot complete a bounded pass either, the honest conclusion is that this harness
+cannot produce an independent second review without a different model enabled for
+child runs — and the owner should then treat every §5 number as first-use-only
+until they review the annotation by hand.
 
 ## 8. Provenance and revision history
 
