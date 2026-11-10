@@ -352,6 +352,101 @@ class _TruncatedJSONError(Exception):
         self.message = message
 
 
+class _SchemaEchoError(Exception):
+    """Deterministic JSON-Schema echo - retrying is futile (companion to M3).
+
+    The model answered ``Respond with a JSON object in the following format:`` by
+    repeating the SCHEMA it was shown instead of filling it, so the body is valid
+    JSON but IS the schema, not extraction data. This is exactly how the
+    2026-11-10 9B run skipped chunks 2/4/6 (ExtractedEdges, SummarizedEntities) -
+    graphiti then failed ``ExtractedEdges(**body)`` with a generic ``Field
+    required`` "wrong-keys" error that hid the real failure class.
+
+    A detected echo is a payload graphiti would reject anyway (its required
+    top-level field is absent), so relabelling it can only make an
+    already-guaranteed chunk skip more precise -- it never turns a success into a
+    failure and never changes graph content. It falls OUTSIDE graphiti's
+    tenacity-retried set (``is_server_or_retry_error``), so -- like
+    ``_TruncatedJSONError`` -- a reproducible echo fails fast instead of burning
+    the retry chain, and M2's ``_ingest_record`` skips the chunk once.
+    """
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+
+def _required_top_level(response_model) -> set:
+    """Graphiti's REQUIRED top-level field names for a response model.
+
+    Cheap (reads ``model_fields``, not ``model_json_schema``): the set a payload
+    must carry to be a populated extraction result rather than a schema stub,
+    e.g. ``ExtractedEdges`` -> ``{"edges"}``, ``SummarizedEntities`` ->
+    ``{"summaries"}`` (a field with a default is not required, so it is not in
+    the set)."""
+
+    fields = getattr(response_model, "model_fields", None)
+    if not fields:
+        return set()
+    return {name for name, info in fields.items() if info.is_required()}
+
+
+# The container-only keys of a JSON-Schema document. A payload whose TOP-LEVEL
+# keys are drawn from this set (and not from graphiti's required fields) is the
+# schema being echoed, not data. Deliberately NOT the JSON-TYPE words that a
+# populated element would carry, so an extraction result that merely OMITS an
+# optional field (valid_at/invalid_at) is never misread as an echo -- that is a
+# #1909 completeness concern handled by pydantic defaulting, not an echo.
+_SCHEMA_CONTAINER_MARKERS = frozenset(
+    {
+        "$defs",
+        "$ref",
+        "$schema",
+        "properties",
+        "type",
+        "title",
+        "required",
+        "additionalProperties",
+        "definitions",
+        "anyOf",
+        "allOf",
+        "oneOf",
+        "items",
+    }
+)
+
+
+def _looks_like_schema_echo(payload, response_model) -> bool:
+    """True when a parsed body is the JSON Schema echoed back, not data.
+
+    Conservative by construction so it NEVER mislabels a body graphiti could
+    have used:
+
+    * a non-dict payload, or a model with no required fields, is never an echo;
+    * a payload that carries ANY of graphiti's REQUIRED top-level fields as a
+      SIBLING key is NOT an echo -- at worst a wrong-keys / inner-shape defect
+      the alias net and pydantic still own (e.g. ``{"entities": [...]}``);
+    * only when NO required field sits at the top level AND the container still
+      looks like a schema document (a ``$defs``/``properties``/``type`` marker)
+      does this fire -- e.g. the 9B run's ``{"$defs": {"Edge": {...}}}``.
+
+    Required fields are read from ``model_fields`` (top level only); a property
+    NAME nested under ``properties`` is deliberately not consulted, so a full
+    schema echo whose top-level ``properties`` happens to include the field name
+    is still caught.
+    """
+
+    if not isinstance(payload, dict):
+        return False
+    required = _required_top_level(response_model)
+    if not required:
+        return False
+    top = set(payload)
+    if top & required:
+        return False
+    return bool(top & _SCHEMA_CONTAINER_MARKERS)
+
+
 # ---------------------------------------------------------------------------
 # Local Graphiti clients (local-runtime LLM, local embedder, no-op reranker)
 # ---------------------------------------------------------------------------
@@ -990,11 +1085,32 @@ def _build_llm_client():
                 # JSONDecodeError; surface a clear error instead.
                 if not result:
                     raise EmptyResponseError("LLM returned an empty response")
+                parsed = json.loads(self._strip_code_fences(result))
+                if _looks_like_schema_echo(parsed, response_model):
+                    # Schema echo: the body IS the schema, not extraction data
+                    # (the 9B run's ExtractedEdges/SummarizedEntities skips).
+                    # Relabel + fail fast instead of surfacing as a generic
+                    # "Field required" wrong-keys skip that hides the class.
+                    logger.warning(
+                        "graphiti LLM response [schema-echo]: model returned the "
+                        "JSON Schema, not extraction data; response_model=%s "
+                        "finish_reason=%s body=%.400s",
+                        getattr(response_model, "__name__", response_model),
+                        finish_reason,
+                        result,
+                    )
+                    raise _SchemaEchoError(
+                        f"schema echo: model returned the JSON Schema for "
+                        f"{getattr(response_model, '__name__', response_model)} "
+                        f"instead of extraction data (not retried)"
+                    )
                 return _normalize_to_schema(
-                    json.loads(self._strip_code_fences(result)),
+                    parsed,
                     response_model,
                     messages,
                 )
+            except _SchemaEchoError:
+                raise
             except openai.RateLimitError as e:
                 raise RateLimitError from e
             except json.JSONDecodeError as exc:
