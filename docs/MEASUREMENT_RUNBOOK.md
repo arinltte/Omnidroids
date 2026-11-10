@@ -5,6 +5,15 @@ budget, an evidence run). It is the conventions `HANDOFF.md` §2 + §9 B/C alrea
 every rule here was paid for once. The gates and the hard constraints live in
 `HANDOFF.md` §2 / §7; this file is how to *measure* against them.
 
+## -1. If the run is a quality comparison, read the gold standard first
+
+A run is **not** comparable on node counts, `ok/skip`, retries or wall time. Before you
+report any arm as "better": read `docs/GOLD_STANDARD.md`, run
+`scratch/gold_score.py --check` (the gold must still be grounded in its slice), then score the
+arm's graph with `gold_dump_graph.py` + `gold_score.py --score`. The frozen 8-bit baseline and
+the metric definitions are in `docs/GOLD_STANDARD.md`; the next session's full brief is
+`HANDOFF.md` §9 G.1.1.
+
 ## 0. Pre-flight, every run
 
 ```bash

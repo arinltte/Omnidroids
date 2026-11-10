@@ -281,6 +281,21 @@ the platform propagation chain (微博→抖音→小红书→B站→知乎) is 
 three inexpressible relations (`RESPONDS_TO` to an unnamed mass; `SUPPORTS/OPPOSES` with a
 `CrowdAction` endpoint; event→organisation reputation) were already there.
 
+**The second pass's six contested verdicts, recorded verbatim** (its raw file
+`scratch/gold_second_adjudicator.json` is git-ignored and can be cleaned; this is the durable
+copy):
+
+| call | its verdict (abridged) | this gold | same? |
+|---|---|---|---|
+| (a) 武汉大学 / 校方 one entity or two | **gold — same entity**; splitting is a coreference error | same | **yes** |
+| (b) 甲醛事件在线协同维权 | **gold** — textbook `CrowdAction` | same | **yes** |
+| (c) the four analytic engines | **junk** — the report's own analytic rhetoric, not real entities | `borderline` | **no** (documented dissent) |
+| (d) 武大宿舍改造模板 / 高考志愿避坑指南 | **borderline** — real notes, weak `CrowdAction` fit | `borderline` | **yes** |
+| (e) 图书馆诬告案 / 甲醛宿舍 | **borderline** — no `Event` type, so no node; relations inexpressible | `junk` (same operational conclusion) | label only |
+| (f) the five platforms | **gold** — `MediaOutlet`'s own description names these | same | **yes** |
+
+Its two hardest calls (its own words): "武大与校方合一…合并以避共指冗余", and "诬告案/甲醛宿舍无Event类型：全报告核心却无法落节点，最可能与他标注者分歧" — the second of which is exactly the disagreement it predicted.
+
 **Caveat on "independent", recorded rather than hidden:** the child registry exposes only
 this session's base model, so the second adjudication ran on the *same* model in a fresh
 context. That rules out nothing about contamination (it never saw the gold) but it does not
