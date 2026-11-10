@@ -1,7 +1,10 @@
 # Gold standard — `abfix_slice8` (HANDOFF §9 G item 1)
 
-**Status:** frozen, self-checked, rescored against two frozen runs. Awaiting the
-independent second-annotation comparison (§6) and owner sign-off (§7).
+**Status:** frozen, self-checked, rescored against two frozen runs, and
+cross-checked by an independent context-isolated adjudication that agreed on every
+numbered decision (§6). **Two things still gate its use as a standard:** the owner's
+sign-off, and a different-model second pass (the child registry only exposes this
+session's model).
 
 **What this file is:** the rules that make `docs/gold_abfix_slice8.json` a standard
 rather than an opinion. Every number in HANDOFF §9 C/D and every future arm's
@@ -223,24 +226,67 @@ What this says that the old numbers could not:
 ## 6. Independent second annotation
 
 `--agree` computes the inter-annotator agreement between this gold and a second,
-independently produced annotation (`scratch/gold_second_annotator.json`), on the
+independently produced pass (`scratch/gold_second_adjudicator.json`), on the
 gold / borderline / junk tiers and on the gold edge set:
 
 ```bash
 .venv/bin/python ../scratch/gold_score.py --agree \
-    --gold ../docs/gold_abfix_slice8.json --other ../scratch/gold_second_annotator.json
+    --gold ../docs/gold_abfix_slice8.json --other ../scratch/gold_second_adjudicator.json
 ```
 
-The second pass was requested as a separate, context-isolated annotator that never
-sees this file. **First attempt failed:** the child read both source files, explicitly
-confirmed it had opened no gold file (so its independence was intact), then stalled
-without ever writing its answer — 90 minutes of preambles, no output file, run
-timed out. Nothing was salvageable and nothing was contaminated. A second, bounded
-attempt is scoped to the decisions that move the numbers (§7). Until a second
-adjudication lands and is compared here, the gold's `status` stays
-`frozen-pending-owner-review`: **first-use only**, and every number in §5 is
-adjudication-dependent (one entity moving between gold and junk moves recall by
-1/7 = 14.3 points, which is the scale of every entity decision on this slice).
+It accepts a **full second annotation** (an `entities` list with tiers) or the
+**bounded adjudicator shape** this repo actually produced (`gold_entities` /
+`gold_edges` / `contested`). In the bounded case a stated verdict is expanded over the
+surface forms the question enumerated — that expansion is written down in
+`ADJUDICATOR_VERDICT_EXPANSION` so it can be audited — and the **junk comparison is
+declared not-comparable** rather than printing a Jaccard between 144 grounded terms
+and 6 verdicts.
+
+The second pass was run as a separate, context-isolated child that never opened this
+gold (it said so in its own transcript). **First attempt failed** — it read both
+sources, confirmed no gold exposure, then stalled and wrote nothing (90 min timeout);
+nothing was salvageable and nothing was contaminated. The second attempt was
+scoped to the decisions that move a number (gold set, gold edge set, six contested
+tier calls) and completed.
+
+**Result — the operational core is identical, and the disagreements are documented
+rather than resolved by me** (`--agree` output, `scratch/gold_agreement.json`):
+
+| comparison | primary | second | agreement |
+|---|---:|---:|---|
+| gold entities | 7 | 7 | **Jaccard 1.000 — same names, same ontology types** |
+| gold edges (`source—relation→target`, incl. direction and window) | 5 | 5 | **Jaccard 1.000** |
+| borderline entities | 6 | 4 | 0.250 — **the only substantive disagreement, below** |
+| junk entities | 144 (grounded) | 4 (adjudicated) | **not comparable** — the bounded pass was never asked to enumerate junk, so a Jaccard here would measure question scope, not annotator agreement. `--agree` refuses to print one. |
+
+Of the six contested calls, four agree (武汉大学/校方 is one entity; the CrowdAction is
+gold; the Xiaohongshu templates are borderline; the five platforms are gold), and two
+disagree:
+
+1. **The report's four analytic engines (B01-B04) — primary `borderline`, second `junk`.**
+   Held at borderline, dissent recorded in the gold's own `notes`. **No recall
+   consequence either way** (neither reading makes them gold); the only effect is
+   precision for an arm that extracts them — 4 junk hits under the second reading,
+   0 under mine. The second pass's stated reason ("no type fits") is wrong on the
+   ontology facts — `Organization` covers them — so the disagreement is about
+   real-world-ness, not type fit. Owner's call; moving them is a one-line change and
+   this note is the audit trail.
+2. **图书馆诬告案 / 甲醛宿舍 — primary `junk`, second `borderline`.** Label-only: both
+   conclude that **no node may exist** (no `Event` type), which is what each tier
+   enforces. No scoring consequence.
+
+The second pass also produced one finding the gold did not have, which **was adopted**:
+the platform propagation chain (微博→抖音→小红书→B站→知乎) is inexpressible because no
+`MediaOutlet→MediaOutlet` edge type exists — added to `rejected_articulations`. Its other
+three inexpressible relations (`RESPONDS_TO` to an unnamed mass; `SUPPORTS/OPPOSES` with a
+`CrowdAction` endpoint; event→organisation reputation) were already there.
+
+**Caveat on "independent", recorded rather than hidden:** the child registry exposes only
+this session's base model, so the second adjudication ran on the *same* model in a fresh
+context. That rules out nothing about contamination (it never saw the gold) but it does not
+rule out a shared systematic bias. A different-model second pass is still open; until one
+exists, treat §5 as **first-use, one-annotator-with-checking** numbers, not a validated
+standard.
 
 ## 7. What still has to happen before an arm is ranked
 
@@ -261,15 +307,14 @@ adjudication-dependent (one entity moving between gold and junk moves recall by
 | # | attempt | outcome |
 |---|---|---|
 | 1 | 2026-11-17, full independent annotation, context-isolated child, no gold file seen | **failed** — read both sources, confirmed no gold exposure, then stalled and wrote nothing (90 min timeout). No output, no contamination, nothing salvageable |
-| 2 | 2026-11-17, bounded re-run: gold entity set + gold edge set + six contested tier calls only | in flight |
+| 2 | 2026-11-17, bounded re-run: gold entity set + gold edge set + six contested tier calls only | **completed** — gold set and gold edge set identical (Jaccard 1.000 both), 4/6 contested calls agree, 2 disagreements documented in §6 |
 
 The re-run is deliberately narrowed to the decisions that move a number: a
 disagreement on *which junk term* only re-labels the junk taxonomy, whereas a
-disagreement on a tier border moves recall/precision by 14.3 points. If the child
-cannot complete a bounded pass either, the honest conclusion is that this harness
-cannot produce an independent second review without a different model enabled for
-child runs — and the owner should then treat every §5 number as first-use-only
-until they review the annotation by hand.
+disagreement on a tier border moves recall/precision by 14.3 points. As it turned
+out the narrowed scope was the right scope — the second pass agreed on every entity
+and every edge that carries a number, and its one dissent (the report's analytic
+engines) moves no recall figure at all.
 
 ## 8. Provenance and revision history
 
@@ -277,6 +322,7 @@ until they review the annotation by hand.
 |---|---|---|---|
 | 1.0 | 2026-11-17 | first annotation: 7 gold / 6 borderline / 140 junk, 5 gold edges | §9 G item 1 |
 | 1.0.1 | 2026-11-17 | **+4** grounded junk entries (`2023至2025年`, `27个百分点`, `公众的诉求`, `身份政治与群体撕裂`) and **+2 `match_keys` variants** (`↑27个百分点`/`27个百分点`, `“快而浅”的回应策略`/`快而浅的回应策略` + `回应策略`/`技术性应激反应`); **−1** entry (`政府监管`) that the checker could not ground | **Adjudication of the first score's review queue.** Every addition is justified by an annotation *rule* (a date range, a metric delta, an abstract theme, a quote-wrapped variant), not by "the model emitted it". One node was removed rather than added: its surface form (`政府监管`) occurs nowhere in the slice, so listing it would have let a hallucination silently match. It stays in the queue, where it belongs. |
+| 1.1 | 2026-11-17 | **+1** rejected articulation (the MediaOutlet→MediaOutlet propagation chain, adopted from the second adjudication); **+1** documented dissent (B01-B04 analytic engines: primary `borderline`, second `junk`, no recall consequence, owner's call); version/annotator fields updated | **Adjudication of the second pass.** No tier was changed on a single dissent, and no junk term was added on "the model emitted it" — §5's numbers are unchanged from 1.0.1 because this dissent cannot move them. |
 
 Every revision must keep `--check` green and must record its reason here, because
 the gold is the reference: quiet edits to it move every number ever published

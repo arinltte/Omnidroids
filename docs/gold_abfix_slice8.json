@@ -1,9 +1,9 @@
 {
   "gold_standard": "abfix_slice8",
-  "version": "1.0",
+  "version": "1.1",
   "status": "frozen-pending-owner-review",
   "purpose": "The reference every extraction arm is scored against (HANDOFF §9 G item 1). Precision here is what makes 'better' mean something other than 'valid JSON'.",
-  "annotator": "primary pass, agent session (2026-11-17, stepfun-ai/step-5-preview)",
+  "annotator": "primary pass, agent session (2026-11-17, stepfun-ai/step-5-preview). Second adjudication: independent context-isolated pass, same base model (2026-11-17) — see docs/GOLD_STANDARD.md §6",
   "review": "independent second-annotation pass + owner sign-off recorded in §review of docs/GOLD_STANDARD.md",
   "slice": {
     "file": "scratch/abfix_slice8.json",
@@ -170,7 +170,7 @@
       "attributes": {},
       "extra_facts": ["负责事实梳理"],
       "evidence": "chunk 0: '通过整合查询引擎的事实梳理、媒体引擎的形象解构、洞察引擎的民意量化以及分析论坛的协同研判'",
-      "notes": "Extracting it is defensible (the document describes it as an engine) but it is not a real-world organisation; the interaction of these four engines with 武汉大学 has no expressible ontology edge (no Organization→University edge type)."
+      "notes": "Extracting it is defensible (the document describes it as an engine) but it is not a real-world organisation; the interaction of these four engines with 武汉大学 has no expressible ontology edge (no Organization→University edge type). **DISSENT RECORDED (2026-11-17, independent second adjudication):** the second pass calls all four engines *junk* — '报告自述的分析话语，非真实外部实体'. Held at borderline because the document names them and states their roles, and because neither reading makes them gold, so **recall is unaffected either way**; the only metric consequence is precision for an arm that extracts them (4 junk hits instead of 0). Its stated reason ('no type fits') does not hold — Organization does cover them; the disagreement is about real-world-ness, not type fit. The owner may settle this: move B01-B04 to junk and this note survives as the audit."
     },
     {
       "id": "B02",
@@ -442,7 +442,8 @@
     {"relation": "REGULATES", "source": "?", "target": "E01", "why": "No government agency is named anywhere in this slice; 政府监管 appears only as an abstract theme."},
     {"relation": "WORKS_FOR / STUDIES_AT / REPRESENTS / COMMENTS_ON", "source": "-", "target": "-", "why": "No named individual, student, professor, journalist or alumni body exists in this slice."},
     {"relation": "SUPPORTS / OPPOSES", "source": "E07", "target": "E01", "why": "Ontology gap: SUPPORTS/OPPOSES take Person as source only. The 1937-person collective维权 action toward 武汉大学 cannot be expressed, so it is recorded as a rejected articulation rather than a scored edge."},
-    {"relation": "any edge to 图书馆诬告案 / 甲醛宿舍 / 樱花 / 病毒学", "source": "-", "target": "-", "why": "Ontology gap: no Event, Location, Symbol or Field type exists, so these have no legal endpoint."},
+    {"relation": "平台传播链 微博→抖音→小红书→B站→知乎", "source": "E02..E06", "target": "E02..E06", "why": "Ontology gap — added on the second adjudication's finding (2026-11-17): no MediaOutlet→MediaOutlet edge type exists, and the report's 完整传播链 is exactly a platform-to-platform chain. AFFILIATED_WITH is Organization→Organization only and states affiliation, not propagation, so it cannot be borrowed."},
+    {"relation": "any edge to 图书馆诬告案 / 甲醛宿舍 / 樱花 / 病毒学", "source": "-", "target": "-", "why": "Ontology gap: no Event, Location, Symbol or Field type exists, so these have no legal endpoint. The second adjudication labels the two events *borderline* where this gold labels them *junk*; both readings conclude no node may exist, so the difference is a label, not a scoring consequence."},
     {"relation": "AFFILIATED_WITH 分析论坛→武汉大学 (or any Organization→University edge)", "source": "B04", "target": "E01", "why": "Ontology gap: AFFILIATED_WITH covers Organization→Organization only, and the borderlines are report-internal engines anyway."},
     {"relation": "武汉大学 REPORTS_ON 平台", "source": "E01", "target": "E02", "why": "Direction error trap: the text has the platforms reporting on the university, never the reverse."}
   ],
