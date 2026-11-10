@@ -46,7 +46,7 @@ not a re-implementation:
 |---|---|
 | `chunk_size_probe.py` | Offline: rebuilds the acceptance document's text through the production parser and **byte-verifies the `chunk_size` chunking (sha256-for-sha256) against the real run's batch record** (`backend/data/graphiti/<graph_id>/batches/*.json`), then cuts the slice. Run it first: it proves the slice *is* the text the baseline measured. |
 | `chunk_slice_measure.py` | The real seam on that slice: drives `app.utils.graphiti_zep._build_llm_client()` (M1's per-call clamp live), the Flask `/v1` proxy of a real `run.py` child (no direct runner call), `add_episode` with `_ingest_record`'s exact arguments over embedded Kuzu + the production embedder, and **the baseline run's own ontology** (`…/ontology.json`, 10 entities / 9 edges — not a 3-type fixture). `--budget N` is the in-process clamp override (Trap 2). One row per LLM call in its JSON summary. |
-| `chunk_slice_run.sh` | The runner: Ollama assertion, RSS sampler, stall guard, SIGTERM only. |
+| `chunk_slice_run.sh` | The runner: Ollama assertion, RSS sampler, stall guard, SIGTERM only. **Trap: it never passes `--ontology`** — the harness silently uses its default `scratch/chunk_size_ontology.json`, which `chunk_size_probe.py` *overwrites* from the baseline run. Before any ontology A/B, copy the ontology under test over that path (and back the old one up), or the arm runs the wrong ontology. |
 | `register_model.py` | Register a locally downloaded model the way `downloader.py` does. **No role assignment until a decision ticket.** |
 | `check_small_role.py` / `verify_small_role_serving.py` | The role-swap proofs (now retired for the guard class by `backend/tests/test_model_registry_roles.py`). |
 
