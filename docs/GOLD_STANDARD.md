@@ -257,7 +257,7 @@ here).
 | version | date | change | why |
 |---|---|---|---|
 | 1.0 | 2026-11-17 | first annotation: 7 gold / 6 borderline / 140 junk, 5 gold edges | §9 G item 1 |
-| 1.0.1 | 2026-11-17 | +5 grounded junk entries (`2023至2025年`, `27个百分点`, `公众的诉求`, `身份政治与群体撕裂`, and the quote-variant `技术性应激反应`), +`match_keys` for `↑27个百分点`/`27个百分点` and `“快而浅”的回应策略`/`快而浅的回应策略`; −1 entry (`政府监管`) that the checker could not ground | **Adjudication of the first score's review queue.** Every addition is justified by an annotation *rule* (a date range, a metric delta, an abstract theme, a quote-wrapped variant), not by "the model emitted it". One node was removed rather than added: its surface form (`政府监管`) occurs nowhere in the slice, so listing it would have let a hallucination silently match. It stays in the queue, where it belongs. |
+| 1.0.1 | 2026-11-17 | **+4** grounded junk entries (`2023至2025年`, `27个百分点`, `公众的诉求`, `身份政治与群体撕裂`) and **+2 `match_keys` variants** (`↑27个百分点`/`27个百分点`, `“快而浅”的回应策略`/`快而浅的回应策略` + `回应策略`/`技术性应激反应`); **−1** entry (`政府监管`) that the checker could not ground | **Adjudication of the first score's review queue.** Every addition is justified by an annotation *rule* (a date range, a metric delta, an abstract theme, a quote-wrapped variant), not by "the model emitted it". One node was removed rather than added: its surface form (`政府监管`) occurs nowhere in the slice, so listing it would have let a hallucination silently match. It stays in the queue, where it belongs. |
 
 Every revision must keep `--check` green and must record its reason here, because
 the gold is the reference: quiet edits to it move every number ever published
