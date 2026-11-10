@@ -118,8 +118,8 @@ ONTOLOGY_SYSTEM_PROMPT = """你是一个专业的知识图谱本体设计专家�
 你的10个实体类型必须包含以下层次：
 
 A. **兜底类型（必须包含，放在列表最后2个）**：
-   - `Person`: 任何自然人个体的兜底类型。当一个人不属于其他更具体的人物类型时，归入此类。
-   - `Organization`: 任何组织机构的兜底类型。当一个组织不属于其他更具体的组织类型时，归入此类。
+   - `Person`: **仅当提及确为自然人个体时使用**。日期、时间、数字、指标、口号片段、事件名称等非自然人提及一律不建实体，直接忽略。
+   - `Organization`: **仅当提及确为组织机构时使用**。日期、数字、指标、口号片段、事件名称等非组织提及一律不建实体，直接忽略。
 
 B. **具体类型（8个，根据文本内容设计）**：
    - 针对文本中出现的主要角色，设计更具体的类型
@@ -130,6 +130,7 @@ B. **具体类型（8个，根据文本内容设计）**：
 - 文本中会出现各种人物，如"中小学教师"、"路人甲"、"某位网友"
 - 如果没有专门的类型匹配，他们应该被归入 `Person`
 - 同理，小型组织、临时团体等应该归入 `Organization`
+- **兜底类型不是垃圾桶**：不属于任何具体类型、且不是自然人/组织的提及（日期、时间、数字、指标、口号片段、事件名称等）不得生成实体，直接忽略
 
 **具体类型的设计原则**：
 - 从文本中识别出高频出现或关键的角色类型
@@ -161,7 +162,7 @@ B. **具体类型（8个，根据文本内容设计）**：
 - Doctor: 医生
 
 **个人类（兜底）**：
-- Person: 任何自然人（不属于上述具体类型时使用）
+- Person: 仅自然人（不属于上述具体类型时使用；非自然人提及不建实体）
 
 **组织类（具体）**：
 - University: 高校
@@ -173,7 +174,7 @@ B. **具体类型（8个，根据文本内容设计）**：
 - NGO: 非政府组织
 
 **组织类（兜底）**：
-- Organization: 任何组织机构（不属于上述具体类型时使用）
+- Organization: 仅组织机构（不属于上述具体类型时使用；非组织提及不建实体）
 
 ## 关系类型参考
 
@@ -289,7 +290,7 @@ class OntologyGenerator:
 
 **必须遵守的规则**：
 1. 必须正好输出10个实体类型
-2. 最后2个必须是兜底类型：Person（个人兜底）和 Organization（组织兜底）
+2. 最后2个必须是兜底类型：Person（仅自然人个体）和 Organization（仅组织机构）；日期、时间、数字、指标、口号片段、事件名称等非实体提及一律忽略，不得建实体
 3. 前8个是根据文本内容设计的具体类型
 4. 所有实体类型必须是现实中可以发声的主体，不能是抽象概念
 5. 属性名不能使用 name、uuid、group_id、graph_id 等保留字，用 full_name、org_name 等替代
@@ -504,7 +505,7 @@ class OntologyGenerator:
         # 兜底类型定义
         person_fallback = {
             "name": "Person",
-            "description": "Any individual person not fitting other specific person types.",
+            "description": "Only a real individual person. Never a date, time, number, metric, slogan fragment or event name.",
             "attributes": [
                 {"name": "full_name", "type": "text", "description": "Full name of the person"},
                 {"name": "role", "type": "text", "description": "Role or occupation"}
@@ -514,7 +515,7 @@ class OntologyGenerator:
         
         organization_fallback = {
             "name": "Organization",
-            "description": "Any organization not fitting other specific organization types.",
+            "description": "Only a real organization. Never a date, time, number, metric, slogan fragment or event name.",
             "attributes": [
                 {"name": "org_name", "type": "text", "description": "Name of the organization"},
                 {"name": "org_type", "type": "text", "description": "Type of organization"}
