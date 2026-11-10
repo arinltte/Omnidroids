@@ -2,9 +2,10 @@
 
 **Status:** frozen, self-checked, rescored against two frozen runs, and
 cross-checked by an independent context-isolated adjudication that agreed on every
-numbered decision (§6). **Two things still gate its use as a standard:** the owner's
-sign-off, and a different-model second pass (the child registry only exposes this
-session's model).
+numbered decision (§6). The owner has approved running the quality arms against this
+gold (2026-11-10, with the recommended arm); the gold itself stood as-is — the B01-B04
+dissent was not moved. **One thing still gates its use as a validated standard:** a
+different-model second pass (the child registry only exposes this session's model).
 
 **What this file is:** the rules that make `docs/gold_abfix_slice8.json` a standard
 rather than an opinion. Every number in HANDOFF §9 C/D and every future arm's
@@ -223,6 +224,75 @@ What this says that the old numbers could not:
    minutes of wall time bought **two correct nodes and zero correct edges**.
    No runtime number in §9 C (nodes/chunk, retries, wall) can be read as progress.
 
+## 5.1 The first quality arm — Exp-5, `Person` removed — **MEASURED 2026-11-10: NULL-TO-NEGATIVE, not adopted**
+
+**Provenance** (the §9 G list): run `exp5_1794325263` (evidence triple
+`scratch/chunkslice_exp5_1794325263.log/.json/_backend.log`), commit `3c654b7`, model from the
+**backend log** `mlx LFM3-1.7B-MLX-8bit generate … max_tokens=4096` (never the harness's
+`model=` line), 8-bit MLX, graphiti 0.31.2, ontology = the frozen baseline **minus the `Person`
+entity type** (9 entities / 10 edges; every other entity and all edge definitions byte-identical,
+backup at `scratch/chunk_size_ontology.json.bak-pre-exp5`), slice `scratch/abfix_slice8.json`
+unchanged (gold-pinned), chunk 500/50, production budget 4096 (no `--budget` override),
+concurrency at the `.env` default (`GRAPHITI_MAX_COROUTINES` commented out), wall **1028.7 s**,
+**6 ok / 2 skipped** (chunks 6, 7 — `malformed-json`, **no `schema-echo`**), 95 LLM calls,
+52 retries, peak `run.py` RSS 2062 MB, graph 63 nodes (59 untyped) / 76 edges. Ollama asserted
+empty before and after; no `python3.11` left idle.
+
+Scored against **gold v1.2**; the control was re-scored under the same v1.2 for an
+apples-to-apples table (its numbers are unchanged — none of the v1.2 additions match a
+control node).
+
+| gold metric | control `ab8before2_1794285607` | **Exp-5 `exp5_1794325263`** | read |
+|---|---:|---:|---|
+| entity recall | 2/7 = 0.286 | **2/7 = 0.286** | **no move** |
+| recall on attempted chunks | 2/2 = 1.00 | 2/2 = 1.00 | no move |
+| precision (unadjudicated) | 0.061 | **0.032** | **worse (halved)** |
+| junk + unknown share | 31/33 = 0.94 | 57/63 = 0.91 | unchanged |
+| junk reasons (top) | abstract-concept 15, metric 7 | abstract-concept 13, metric 10 | unchanged classes |
+| nodes / edges | 33 / 54 | 63 / 76 | more of everything |
+| over-split (E01) | 0 | **1 — `武汉大学`+`校方` two nodes** | recurring fault |
+| **gold edge recall** | 0/5 | **0/5** | no move |
+| extra edges (resolvable pairs, no gold edge) | 1 | 12 | worse |
+| off-ontology relation rate | 1.00 | 1.00 | seam unchanged |
+| temporal completeness / text-derived `valid_at` | 0/5 / 0 of 48 | 0/5 / **0 of 76** | gap total |
+| attribute support | 2/10 | 5/10 | +3, noise scale |
+| type accuracy on matched | 1/2 | 2/3 | noise scale |
+| cost per gold entity | 46.0 calls | **47.5 calls** | worse |
+| per-edge dedupe calls | 45 | **56** | the cost lever went the wrong way |
+| skipped chunks | 6, 7 (malformed-json) | 6, 7 (malformed-json) | same mechanism |
+
+**Findings (each one is a measurement, not a reading of node counts):**
+
+1. **The recall ceiling did not move, and it is still the skip guard.** The five gold
+   platforms are still missing because chunks 6 and 7 still fail `malformed-json` — the same
+   chunks, the same failure class as the control. On the attempted chunks recall is 2/2 in
+   both arms. **Zero entities moved: this is below the gold's resolution limit (one entity =
+   14.3 points) — noise, not a result.**
+2. **The precision hypothesis failed.** Junk is **ontology-independent**: the dominant junk
+   classes (abstract themes, metrics) fit *none* of the 10 types, with or without `Person`, so
+   removing a type redistributes junk rather than removing it. After adjudication the
+   junk+unknown share is unchanged (0.94 → 0.91, inside one-node noise), while the node total
+   doubled — so unadjudicated precision halved.
+3. **Runbook §4.1's cost prediction failed in direction.** The junk magnet was expected to be
+   `entity_type_id 0`; with it gone the per-edge dedupe calls rose (45 → 56) and cost per
+   correct entity rose (46.0 → 47.5). Removing the catch-all did not make extraction cheaper.
+4. **The trade-off side is unmeasurable on this slice.** `Person`'s cost (persons and
+   organisations that fit no other type vanish) cannot be observed: the slice contains no
+   named individual (§1's `known_limitations`). A null quality result **plus** an unmeasurable
+   product cost is not an adoption.
+5. **Recurring fault, now seen twice:** E01 (`武汉大学`) splits into two nodes (`校方`
+   lands as its own node, over-split 0.33) — a coreference behaviour of the seam, not of the
+   ontology.
+
+**Queue adjudication (by hand, before any claim — §2.8):** 23 items ruled, **19 junk by rule**
+and folded into the gold (v1.2, below); **4 ruled junk but NOT added** — `反对`, `五起`, the
+prose blob, and the emotions list have **no verbatim surface form in the slice**, so adding
+them would let a hallucination match (the `政府监管` precedent). They stay in the record, not
+in the gold. No queue item rescued to gold or borderline.
+
+**Verdict: do not adopt.** The next recall lever is now unambiguous: it is upstream of
+extraction quality (the `malformed-json` path that skips chunks 6, 7), not the ontology.
+
 ## 6. Independent second annotation
 
 `--agree` computes the inter-annotator agreement between this gold and a second,
@@ -338,6 +408,7 @@ engines) moves no recall figure at all.
 | 1.0 | 2026-11-17 | first annotation: 7 gold / 6 borderline / 140 junk, 5 gold edges | §9 G item 1 |
 | 1.0.1 | 2026-11-17 | **+4** grounded junk entries (`2023至2025年`, `27个百分点`, `公众的诉求`, `身份政治与群体撕裂`) and **+2 `match_keys` variants** (`↑27个百分点`/`27个百分点`, `“快而浅”的回应策略`/`快而浅的回应策略` + `回应策略`/`技术性应激反应`); **−1** entry (`政府监管`) that the checker could not ground | **Adjudication of the first score's review queue.** Every addition is justified by an annotation *rule* (a date range, a metric delta, an abstract theme, a quote-wrapped variant), not by "the model emitted it". One node was removed rather than added: its surface form (`政府监管`) occurs nowhere in the slice, so listing it would have let a hallucination silently match. It stays in the queue, where it belongs. |
 | 1.1 | 2026-11-17 | **+1** rejected articulation (the MediaOutlet→MediaOutlet propagation chain, adopted from the second adjudication); **+1** documented dissent (B01-B04 analytic engines: primary `borderline`, second `junk`, no recall consequence, owner's call); version/annotator fields updated | **Adjudication of the second pass.** No tier was changed on a single dissent, and no junk term was added on "the model emitted it" — §5's numbers are unchanged from 1.0.1 because this dissent cannot move them. |
+| 1.2 | 2026-11-10 | **+19** grounded junk entries from the Exp-5 queue adjudication (`J147`-`J165`: 4 `metric` — two date ranges, `28.7亿次`, `五年总和`; 11 `abstract-concept` — `整体治理能力`/`民意量化`/`协同研判`/`回应`/`支持`/`集体认知`/`社交媒体环境`/`透明-共治`/`品牌声量与影响力`/`品牌声量`/`治理`; 1 `public-perception` — `民意`; 1 `pattern-mode` — `校方传统的、行政逻辑优先的应对模式`, attributed to the chunk the checker proved — [1]; 1 `event-no-ontology-type` — `舆情危机`; 1 `generic-mass` — `全平台`); **0** tier changes, **0** gold/borderline/edge changes; `--check` green | **Adjudication of the first quality arm's review queue (Exp-5, §5.1).** Every addition is justified by an annotation *rule* and re-grounded by `--check`. Four queue items (`反对`, `五起`, the prose blob, the emotions list) were ruled junk by the same rules but **not added**: their surface forms occur nowhere in the slice, so a gold entry would have let a hallucination match — they stay in the §5.1 record, where the `政府监管` precedent puts them. §5.1's table reports both the as-scored (34 junk + 23 unknown) and as-adjudicated (53 junk + 4 unknown) reads. |
 
 Every revision must keep `--check` green and must record its reason here, because
 the gold is the reference: quiet edits to it move every number ever published

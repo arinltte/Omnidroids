@@ -1,6 +1,6 @@
 {
   "gold_standard": "abfix_slice8",
-  "version": "1.1",
+  "version": "1.2",
   "status": "frozen-pending-owner-review",
   "purpose": "The reference every extraction arm is scored against (HANDOFF §9 G item 1). Precision here is what makes 'better' mean something other than 'valid JSON'.",
   "annotator": "primary pass, agent session (2026-11-17, stepfun-ai/step-5-preview). Second adjudication: independent context-isolated pass, same base model (2026-11-17) — see docs/GOLD_STANDARD.md §6",
@@ -28,8 +28,30 @@
   "ontology": {
     "source": "backend/data/graphiti/ab8before2_1794285607/ontology.json",
     "note": "the ontology the frozen runs actually used (runbook trap: scratch/chunk_size_ontology.json is overwritten by chunk_size_probe.py, so the run's own copy is the authority)",
-    "entity_types": ["Person", "Organization", "Student", "Professor", "MediaOutlet", "GovernmentAgency", "Journalist", "CrowdAction", "University", "Alumni"],
-    "edge_types": ["WORKS_FOR", "STUDIES_AT", "AFFILIATED_WITH", "REPRESENTS", "REGULATES", "REPORTS_ON", "COMMENTS_ON", "RESPONDS_TO", "SUPPORTS", "OPPOSES"]
+    "entity_types": [
+      "Person",
+      "Organization",
+      "Student",
+      "Professor",
+      "MediaOutlet",
+      "GovernmentAgency",
+      "Journalist",
+      "CrowdAction",
+      "University",
+      "Alumni"
+    ],
+    "edge_types": [
+      "WORKS_FOR",
+      "STUDIES_AT",
+      "AFFILIATED_WITH",
+      "REPRESENTS",
+      "REGULATES",
+      "REPORTS_ON",
+      "COMMENTS_ON",
+      "RESPONDS_TO",
+      "SUPPORTS",
+      "OPPOSES"
+    ]
   },
   "tier_definitions": {
     "gold": "should be extracted. Missing it is a false negative; no other entity may stand in for it.",
@@ -42,21 +64,68 @@
       "name": "武汉大学",
       "type": "University",
       "tier": "gold",
-      "aliases": ["校方", "武大"],
-      "match_keys": ["武汉大学", "校方", "武大", "武汉大学品牌声誉", "wuhan university", "whu", "武大（武汉大学）"],
-      "mentions": [
-        {"chunk": 0, "span": "涉及武汉大学的重大舆情事件"},
-        {"chunk": 0, "span": "武汉大学的品牌声誉"},
-        {"chunk": 0, "span": "其作为顶尖985高校"},
-        {"chunk": 0, "span": "武汉大学的舆情危机"},
-        {"chunk": 3, "span": "武汉大学重建品牌声誉的唯一路径"},
-        {"chunk": 4, "span": "武汉大学的品牌声量与影响力"},
-        {"chunk": 5, "span": "这标志着武汉大学的舆论关注度"},
-        {"chunk": 6, "span": "武汉大学舆情事件"},
-        {"chunk": 7, "span": "武大宿舍改造模板"}
+      "aliases": [
+        "校方",
+        "武大"
       ],
-      "attributes": {"org_name": "武汉大学", "type": "985高校", "campus_location": null},
-      "extra_facts": ["百年历史底蕴", "以樱花为代表的强大文化符号", "病毒学等领域的硬核学术实力", "舆论的放大镜"],
+      "match_keys": [
+        "武汉大学",
+        "校方",
+        "武大",
+        "武汉大学品牌声誉",
+        "wuhan university",
+        "whu",
+        "武大（武汉大学）"
+      ],
+      "mentions": [
+        {
+          "chunk": 0,
+          "span": "涉及武汉大学的重大舆情事件"
+        },
+        {
+          "chunk": 0,
+          "span": "武汉大学的品牌声誉"
+        },
+        {
+          "chunk": 0,
+          "span": "其作为顶尖985高校"
+        },
+        {
+          "chunk": 0,
+          "span": "武汉大学的舆情危机"
+        },
+        {
+          "chunk": 3,
+          "span": "武汉大学重建品牌声誉的唯一路径"
+        },
+        {
+          "chunk": 4,
+          "span": "武汉大学的品牌声量与影响力"
+        },
+        {
+          "chunk": 5,
+          "span": "这标志着武汉大学的舆论关注度"
+        },
+        {
+          "chunk": 6,
+          "span": "武汉大学舆情事件"
+        },
+        {
+          "chunk": 7,
+          "span": "武大宿舍改造模板"
+        }
+      ],
+      "attributes": {
+        "org_name": "武汉大学",
+        "type": "985高校",
+        "campus_location": null
+      },
+      "extra_facts": [
+        "百年历史底蕴",
+        "以樱花为代表的强大文化符号",
+        "病毒学等领域的硬核学术实力",
+        "舆论的放大镜"
+      ],
       "evidence": "chunk 0: '武汉大学的品牌声誉在监测周期内呈现出显著的“声望悖论”与“周期性断裂”特征。一方面，其作为顶尖985高校的百年历史底蕴…'",
       "notes": "校方 is the same institution, not a second node: extracting both is an over-split (duplicate), not two recall hits. campus_location is NOT stated in this slice — only implied by the name."
     },
@@ -66,14 +135,35 @@
       "type": "MediaOutlet",
       "tier": "gold",
       "aliases": [],
-      "match_keys": ["微博", "新浪微博", "weibo", "微博平台"],
-      "mentions": [
-        {"chunk": 6, "span": "形成了“微博造势—抖音放大—小红书深化—B站解构—知乎思辨”的完整传播链"},
-        {"chunk": 6, "span": "微博：作为舆情首发和引爆的主阵地"},
-        {"chunk": 7, "span": "微博：作为舆情首发和引爆的主阵地，贡献了68%的首发声量"}
+      "match_keys": [
+        "微博",
+        "新浪微博",
+        "weibo",
+        "微博平台"
       ],
-      "attributes": {"org_name": "微博", "type": "社交媒体平台", "coverage_area": "舆情首发与引爆的主阵地，贡献68%首发声量、47个热搜词条、43次热搜第一"},
-      "extra_facts": ["热搜机制的“通胀”现象愈发严重", "至少7个热搜包被证实为付费推广"],
+      "mentions": [
+        {
+          "chunk": 6,
+          "span": "形成了“微博造势—抖音放大—小红书深化—B站解构—知乎思辨”的完整传播链"
+        },
+        {
+          "chunk": 6,
+          "span": "微博：作为舆情首发和引爆的主阵地"
+        },
+        {
+          "chunk": 7,
+          "span": "微博：作为舆情首发和引爆的主阵地，贡献了68%的首发声量"
+        }
+      ],
+      "attributes": {
+        "org_name": "微博",
+        "type": "社交媒体平台",
+        "coverage_area": "舆情首发与引爆的主阵地，贡献68%首发声量、47个热搜词条、43次热搜第一"
+      },
+      "extra_facts": [
+        "热搜机制的“通胀”现象愈发严重",
+        "至少7个热搜包被证实为付费推广"
+      ],
       "evidence": "chunk 6: '微博：作为舆情首发和引爆的主阵地，贡献了68%的首发声量。'",
       "notes": "One gold entity per platform surface form; a model that splits 微博/微博平台 into two nodes scores one duplicate."
     },
@@ -82,14 +172,36 @@
       "name": "抖音",
       "type": "MediaOutlet",
       "tier": "gold",
-      "aliases": ["短视频平台", "抖音/短视频平台"],
-      "match_keys": ["抖音", "短视频平台", "抖音/短视频平台", "douyin", "tiktok"],
-      "mentions": [
-        {"chunk": 6, "span": "抖音放大"},
-        {"chunk": 7, "span": "抖音/短视频平台：是视觉冲击和情绪放大的核心渠道"}
+      "aliases": [
+        "短视频平台",
+        "抖音/短视频平台"
       ],
-      "attributes": {"org_name": "抖音", "type": "短视频平台", "coverage_area": "视觉冲击和情绪放大的核心渠道，贡献67%视频类声量"},
-      "extra_facts": ["负面舆情的视觉再生产平均延迟2.1小时", "传播速度比纯文本快3-5倍"],
+      "match_keys": [
+        "抖音",
+        "短视频平台",
+        "抖音/短视频平台",
+        "douyin",
+        "tiktok"
+      ],
+      "mentions": [
+        {
+          "chunk": 6,
+          "span": "抖音放大"
+        },
+        {
+          "chunk": 7,
+          "span": "抖音/短视频平台：是视觉冲击和情绪放大的核心渠道"
+        }
+      ],
+      "attributes": {
+        "org_name": "抖音",
+        "type": "短视频平台",
+        "coverage_area": "视觉冲击和情绪放大的核心渠道，贡献67%视频类声量"
+      },
+      "extra_facts": [
+        "负面舆情的视觉再生产平均延迟2.1小时",
+        "传播速度比纯文本快3-5倍"
+      ],
       "evidence": "chunk 7: '抖音/短视频平台：是视觉冲击和情绪放大的核心渠道，贡献了67%的视频类声量。'",
       "notes": ""
     },
@@ -99,13 +211,29 @@
       "type": "MediaOutlet",
       "tier": "gold",
       "aliases": [],
-      "match_keys": ["小红书", "xiaohongshu", "red"],
-      "mentions": [
-        {"chunk": 6, "span": "小红书深化"},
-        {"chunk": 7, "span": "小红书：成为Z世代，特别是女性用户“维权”和“避坑”的主要阵地"}
+      "match_keys": [
+        "小红书",
+        "xiaohongshu",
+        "red"
       ],
-      "attributes": {"org_name": "小红书", "type": "社交媒体平台（图文）", "coverage_area": "Z世代/女性用户“维权”和“避坑”的主要阵地，鼠患、甲醛等后勤问题首曝于此"},
-      "extra_facts": ["图文并茂、模板化传播"],
+      "mentions": [
+        {
+          "chunk": 6,
+          "span": "小红书深化"
+        },
+        {
+          "chunk": 7,
+          "span": "小红书：成为Z世代，特别是女性用户“维权”和“避坑”的主要阵地"
+        }
+      ],
+      "attributes": {
+        "org_name": "小红书",
+        "type": "社交媒体平台（图文）",
+        "coverage_area": "Z世代/女性用户“维权”和“避坑”的主要阵地，鼠患、甲醛等后勤问题首曝于此"
+      },
+      "extra_facts": [
+        "图文并茂、模板化传播"
+      ],
       "evidence": "chunk 7: '小红书：成为Z世代，特别是女性用户“维权”和“避坑”的主要阵地。鼠患、甲醛等后勤问题均首曝于此。'",
       "notes": ""
     },
@@ -114,15 +242,37 @@
       "name": "B站",
       "type": "MediaOutlet",
       "tier": "gold",
-      "aliases": ["B站与知乎"],
-      "match_keys": ["b站", "哔哩哔哩", "bilibili", "b站up主"],
-      "mentions": [
-        {"chunk": 6, "span": "B站解构"},
-        {"chunk": 7, "span": "B站与知乎：扮演了舆情“解构”与“思辨”的后市场角色"},
-        {"chunk": 7, "span": "B站UP主通过鬼畜、数据可视化、RPG攻略等方式"}
+      "aliases": [
+        "B站与知乎"
       ],
-      "attributes": {"org_name": "B站", "type": "视频平台", "coverage_area": "舆情“解构”的后市场角色"},
-      "extra_facts": ["将严肃的公共事件娱乐化、游戏化"],
+      "match_keys": [
+        "b站",
+        "哔哩哔哩",
+        "bilibili",
+        "b站up主"
+      ],
+      "mentions": [
+        {
+          "chunk": 6,
+          "span": "B站解构"
+        },
+        {
+          "chunk": 7,
+          "span": "B站与知乎：扮演了舆情“解构”与“思辨”的后市场角色"
+        },
+        {
+          "chunk": 7,
+          "span": "B站UP主通过鬼畜、数据可视化、RPG攻略等方式"
+        }
+      ],
+      "attributes": {
+        "org_name": "B站",
+        "type": "视频平台",
+        "coverage_area": "舆情“解构”的后市场角色"
+      },
+      "extra_facts": [
+        "将严肃的公共事件娱乐化、游戏化"
+      ],
       "evidence": "chunk 7: 'B站与知乎：扮演了舆情“解构”与“思辨”的后市场角色。'",
       "notes": ""
     },
@@ -131,13 +281,28 @@
       "name": "知乎",
       "type": "MediaOutlet",
       "tier": "gold",
-      "aliases": ["B站与知乎"],
-      "match_keys": ["知乎", "zhihu"],
-      "mentions": [
-        {"chunk": 6, "span": "知乎思辨"},
-        {"chunk": 7, "span": "B站与知乎：扮演了舆情“解构”与“思辨”的后市场角色"}
+      "aliases": [
+        "B站与知乎"
       ],
-      "attributes": {"org_name": "知乎", "type": "社区/问答平台", "coverage_area": "舆情“思辨”的后市场角色"},
+      "match_keys": [
+        "知乎",
+        "zhihu"
+      ],
+      "mentions": [
+        {
+          "chunk": 6,
+          "span": "知乎思辨"
+        },
+        {
+          "chunk": 7,
+          "span": "B站与知乎：扮演了舆情“解构”与“思辨”的后市场角色"
+        }
+      ],
+      "attributes": {
+        "org_name": "知乎",
+        "type": "社区/问答平台",
+        "coverage_area": "舆情“思辨”的后市场角色"
+      },
       "extra_facts": [],
       "evidence": "chunk 7: 'B站与知乎：扮演了舆情“解构”与“思辨”的后市场角色。'",
       "notes": ""
@@ -148,13 +313,32 @@
       "type": "CrowdAction",
       "tier": "gold",
       "aliases": [],
-      "match_keys": ["甲醛事件在线协同维权", "在线协同维权", "甲醛事件在线维权", "1937人甲醛事件在线协同维权"],
-      "mentions": [
-        {"chunk": 2, "span": "1937人 甲醛事件在线协同维权"},
-        {"chunk": 2, "span": "首次出现“四方联动”模式"}
+      "match_keys": [
+        "甲醛事件在线协同维权",
+        "在线协同维权",
+        "甲醛事件在线维权",
+        "1937人甲醛事件在线协同维权"
       ],
-      "attributes": {"org_name": null, "type": "线上协同维权", "platform": null},
-      "extra_facts": ["1937人参与", "首次出现“四方联动”模式", "与甲醛宿舍事件相关"],
+      "mentions": [
+        {
+          "chunk": 2,
+          "span": "1937人 甲醛事件在线协同维权"
+        },
+        {
+          "chunk": 2,
+          "span": "首次出现“四方联动”模式"
+        }
+      ],
+      "attributes": {
+        "org_name": null,
+        "type": "线上协同维权",
+        "platform": null
+      },
+      "extra_facts": [
+        "1937人参与",
+        "首次出现“四方联动”模式",
+        "与甲醛宿舍事件相关"
+      ],
       "evidence": "chunk 2: '1937人 / 甲醛事件在线协同维权 / 首次出现“四方联动”模式'",
       "notes": "Unnamed collective action. It is gold because the ontology's CrowdAction explicitly covers 维权群组/线上协同. org_name is null (unnamed in the text) and platform is null (the text names a 四方联动 mode, not a platform) — a hypothesis that invents either value is over-reaching, not accurate."
     },
@@ -165,10 +349,19 @@
       "tier": "borderline",
       "reason": "报告自建的分析引擎，不是现实世界组织",
       "aliases": [],
-      "match_keys": ["查询引擎"],
-      "mentions": [{"chunk": 0, "span": "整合查询引擎的事实梳理"}],
+      "match_keys": [
+        "查询引擎"
+      ],
+      "mentions": [
+        {
+          "chunk": 0,
+          "span": "整合查询引擎的事实梳理"
+        }
+      ],
       "attributes": {},
-      "extra_facts": ["负责事实梳理"],
+      "extra_facts": [
+        "负责事实梳理"
+      ],
       "evidence": "chunk 0: '通过整合查询引擎的事实梳理、媒体引擎的形象解构、洞察引擎的民意量化以及分析论坛的协同研判'",
       "notes": "Extracting it is defensible (the document describes it as an engine) but it is not a real-world organisation; the interaction of these four engines with 武汉大学 has no expressible ontology edge (no Organization→University edge type). **DISSENT RECORDED (2026-11-17, independent second adjudication):** the second pass calls all four engines *junk* — '报告自述的分析话语，非真实外部实体'. Held at borderline because the document names them and states their roles, and because neither reading makes them gold, so **recall is unaffected either way**; the only metric consequence is precision for an arm that extracts them (4 junk hits instead of 0). Its stated reason ('no type fits') does not hold — Organization does cover them; the disagreement is about real-world-ness, not type fit. The owner may settle this: move B01-B04 to junk and this note survives as the audit."
     },
@@ -179,10 +372,19 @@
       "tier": "borderline",
       "reason": "报告自建的分析引擎，不是现实世界组织",
       "aliases": [],
-      "match_keys": ["媒体引擎"],
-      "mentions": [{"chunk": 0, "span": "媒体引擎的形象解构"}],
+      "match_keys": [
+        "媒体引擎"
+      ],
+      "mentions": [
+        {
+          "chunk": 0,
+          "span": "媒体引擎的形象解构"
+        }
+      ],
       "attributes": {},
-      "extra_facts": ["负责形象解构"],
+      "extra_facts": [
+        "负责形象解构"
+      ],
       "evidence": "chunk 0: '…媒体引擎的形象解构…'",
       "notes": "Do NOT confuse with E02-E06 (real media outlets): the report's engines are analytic components."
     },
@@ -193,14 +395,28 @@
       "tier": "borderline",
       "reason": "报告自建的分析引擎，不是现实世界组织",
       "aliases": [],
-      "match_keys": ["洞察引擎"],
+      "match_keys": [
+        "洞察引擎"
+      ],
       "mentions": [
-        {"chunk": 0, "span": "洞察引擎的民意量化"},
-        {"chunk": 4, "span": "洞察引擎的数据揭示了一个惊人的事实"},
-        {"chunk": 6, "span": "洞察引擎通过对平台扩散路径的分析"}
+        {
+          "chunk": 0,
+          "span": "洞察引擎的民意量化"
+        },
+        {
+          "chunk": 4,
+          "span": "洞察引擎的数据揭示了一个惊人的事实"
+        },
+        {
+          "chunk": 6,
+          "span": "洞察引擎通过对平台扩散路径的分析"
+        }
       ],
       "attributes": {},
-      "extra_facts": ["负责民意量化", "提供平台扩散路径分析"],
+      "extra_facts": [
+        "负责民意量化",
+        "提供平台扩散路径分析"
+      ],
       "evidence": "chunk 4: '洞察引擎的数据揭示了一个惊人的事实…'",
       "notes": ""
     },
@@ -211,10 +427,19 @@
       "tier": "borderline",
       "reason": "报告自建的分析引擎，不是现实世界组织",
       "aliases": [],
-      "match_keys": ["分析论坛"],
-      "mentions": [{"chunk": 0, "span": "分析论坛的协同研判"}],
+      "match_keys": [
+        "分析论坛"
+      ],
+      "mentions": [
+        {
+          "chunk": 0,
+          "span": "分析论坛的协同研判"
+        }
+      ],
       "attributes": {},
-      "extra_facts": ["负责协同研判"],
+      "extra_facts": [
+        "负责协同研判"
+      ],
       "evidence": "chunk 0: '…以及分析论坛的协同研判…'",
       "notes": ""
     },
@@ -225,10 +450,24 @@
       "tier": "borderline",
       "reason": "模板化笔记是内容产物，但文中称其形成社群动员和集体行动模式",
       "aliases": [],
-      "match_keys": ["武大宿舍改造模板", "宿舍改造模板"],
-      "mentions": [{"chunk": 7, "span": "如“武大宿舍改造模板”、“高考志愿避坑指南”等笔记被大量复制和二次创作"}],
-      "attributes": {"org_name": null, "type": "模板化传播笔记", "platform": "小红书"},
-      "extra_facts": ["被大量复制和二次创作"],
+      "match_keys": [
+        "武大宿舍改造模板",
+        "宿舍改造模板"
+      ],
+      "mentions": [
+        {
+          "chunk": 7,
+          "span": "如“武大宿舍改造模板”、“高考志愿避坑指南”等笔记被大量复制和二次创作"
+        }
+      ],
+      "attributes": {
+        "org_name": null,
+        "type": "模板化传播笔记",
+        "platform": "小红书"
+      },
+      "extra_facts": [
+        "被大量复制和二次创作"
+      ],
       "evidence": "chunk 7: '…如“武大宿舍改造模板”、“高考志愿避坑指南”等笔记被大量复制和二次创作，形成了独特的社群动员和集体行动模式。'",
       "notes": "The passage argues it WAS a collective-action artefact; a reasonable annotator could also call it a post. Kept out of gold so recall is not gamed on a contested call."
     },
@@ -239,221 +478,1989 @@
       "tier": "borderline",
       "reason": "模板化笔记是内容产物，但文中称其形成社群动员和集体行动模式",
       "aliases": [],
-      "match_keys": ["高考志愿避坑指南", "志愿避坑指南"],
-      "mentions": [{"chunk": 7, "span": "“高考志愿避坑指南”"}],
-      "attributes": {"org_name": null, "type": "模板化传播笔记", "platform": "小红书"},
-      "extra_facts": ["被大量复制和二次创作"],
+      "match_keys": [
+        "高考志愿避坑指南",
+        "志愿避坑指南"
+      ],
+      "mentions": [
+        {
+          "chunk": 7,
+          "span": "“高考志愿避坑指南”"
+        }
+      ],
+      "attributes": {
+        "org_name": null,
+        "type": "模板化传播笔记",
+        "platform": "小红书"
+      },
+      "extra_facts": [
+        "被大量复制和二次创作"
+      ],
       "evidence": "chunk 7: '…“高考志愿避坑指南”等笔记被大量复制和二次创作…'",
       "notes": ""
     },
     {
-      "id": "J01", "name": "武汉大学品牌声誉深度分析报告", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [0, 2, 4, 6],
+      "id": "J01",
+      "name": "武汉大学品牌声誉深度分析报告",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        0,
+        2,
+        4,
+        6
+      ],
       "notes": "The report's own title line. Extracting it makes the document a graph entity (the 8-bit control did exactly this)."
     },
-    {"id": "J02", "name": "本报告", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [0]},
-    {"id": "J03", "name": "=== 武汉大学品牌声誉深度分析报告.pdf ===", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [0]},
-    {"id": "J04", "name": "file:///Users/guohangjiang/Downloads/final_report__20250827_131630 (1).html", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [2, 4, 6]},
-    {"id": "J05", "name": "2025/11/28 18:16", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [2, 4, 6],
-     "notes": "Footer render time, NOT an event time. A hypothesis that puts this into valid_at is hallucinating (see temporal_statements)."},
-    {"id": "J06", "name": "1/25", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [2]},
-    {"id": "J07", "name": "2/25", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [4]},
-    {"id": "J08", "name": "3/25", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [6]},
-    {"id": "J09", "name": "1.0 摘要与核心发现", "type": null, "tier": "junk", "reason": "section-heading", "chunks": [0]},
-    {"id": "J10", "name": "1.2 关键指标表现", "type": null, "tier": "junk", "reason": "section-heading", "chunks": [2]},
-    {"id": "J11", "name": "1.3 主要结论与战略启示", "type": null, "tier": "junk", "reason": "section-heading", "chunks": [2]},
-    {"id": "J12", "name": "2.0 品牌声量与影响力分析", "type": null, "tier": "junk", "reason": "section-heading", "chunks": [4]},
-    {"id": "J13", "name": "2.2 渠道声量分布", "type": null, "tier": "junk", "reason": "section-heading", "chunks": [6]},
-    {"id": "J14", "name": "平台扩散矩阵分析", "type": null, "tier": "junk", "reason": "section-heading", "chunks": [6]},
-    {"id": "J15", "name": "上图", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [5]},
-    {"id": "J16", "name": "28.7亿+", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J17", "name": "全平台总阅读量", "type": null, "tier": "junk", "reason": "metric", "chunks": [2, 5]},
-    {"id": "J18", "name": "↑190% (vs. 五年总和)", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J19", "name": "5起+", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J20", "name": "重大舆情事件频次", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J21", "name": "↑186% (vs. 五年同期)", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J22", "name": "6.4%", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J23", "name": "正向情感谷底值", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J24", "name": "创985高校最低纪录", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J25", "name": "58%", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J26", "name": "二次舆情反弹概率", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J27", "name": "↑27个百分点", "type": null, "tier": "junk", "reason": "metric", "chunks": [2], "match_keys": ["↑27个百分点", "27个百分点"]},
-    {"id": "J28", "name": "65.4", "type": null, "tier": "junk", "reason": "metric", "chunks": [2, 5]},
-    {"id": "J29", "name": "图书馆事件影响力指数", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J30", "name": "高出同类事件均值10.8%", "type": null, "tier": "junk", "reason": "metric", "chunks": [2]},
-    {"id": "J31", "name": "1937人", "type": null, "tier": "junk", "reason": "metric", "chunks": [2], "notes": "The count belongs to E07's extra_facts, not a node."},
-    {"id": "J32", "name": "68%", "type": null, "tier": "junk", "reason": "metric", "chunks": [6, 7]},
-    {"id": "J33", "name": "67%", "type": null, "tier": "junk", "reason": "metric", "chunks": [7]},
-    {"id": "J34", "name": "183%", "type": null, "tier": "junk", "reason": "metric", "chunks": [7]},
-    {"id": "J35", "name": "2.1小时", "type": null, "tier": "junk", "reason": "metric", "chunks": [7]},
-    {"id": "J36", "name": "3-5倍", "type": null, "tier": "junk", "reason": "metric", "chunks": [7]},
-    {"id": "J37", "name": "1.9倍", "type": null, "tier": "junk", "reason": "metric", "chunks": [4, 5]},
-    {"id": "J38", "name": "47个相关热搜词条", "type": null, "tier": "junk", "reason": "metric", "chunks": [6, 7]},
-    {"id": "J39", "name": "43次", "type": null, "tier": "junk", "reason": "metric", "chunks": [6, 7]},
-    {"id": "J40", "name": "7个热搜包", "type": null, "tier": "junk", "reason": "metric", "chunks": [7]},
-    {"id": "J41", "name": "24小时", "type": null, "tier": "junk", "reason": "metric", "chunks": [5]},
-    {"id": "J42", "name": "1-2年", "type": null, "tier": "junk", "reason": "metric", "chunks": [3], "notes": "A repair projection, not a validity window."},
-    {"id": "J43", "name": "过去五年相关话题阅读量的总和", "type": null, "tier": "junk", "reason": "metric", "chunks": [4, 5]},
-    {"id": "J44", "name": "图书馆诬告案", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [5], "notes": "An event; the ontology has no Event type, so any node for it is off-ontology."},
-    {"id": "J45", "name": "图书馆事件", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [2, 5, 6, 7]},
-    {"id": "J46", "name": "甲醛宿舍", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [5, 7], "notes": "Also an implicit facility; no Location/Facility type exists in this ontology."},
-    {"id": "J47", "name": "甲醛事件", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [2]},
-    {"id": "J48", "name": "樱花", "type": null, "tier": "junk", "reason": "out-of-ontology-type", "chunks": [3, 4, 5], "notes": "A cultural symbol; no Symbol/Location type exists. Its status belongs in E01's extra_facts."},
-    {"id": "J49", "name": "樱花季", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [4, 7]},
-    {"id": "J50", "name": "病毒学", "type": null, "tier": "junk", "reason": "out-of-ontology-type", "chunks": [0], "notes": "Research field; belongs in E01's extra_facts."},
-    {"id": "J51", "name": "甲醛", "type": null, "tier": "junk", "reason": "out-of-ontology-type", "chunks": [5, 7], "notes": "Substance/issue, not an entity."},
-    {"id": "J52", "name": "顶尖985高校", "type": null, "tier": "junk", "reason": "classification-label", "chunks": [0], "notes": "An attribute value of E01, not a node."},
-    {"id": "J53", "name": "985滤镜破碎", "type": null, "tier": "junk", "reason": "public-perception", "chunks": [1, 5]},
-    {"id": "J54", "name": "品牌声誉", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [0, 1, 3, 4, 5, 7]},
-    {"id": "J55", "name": "声望悖论", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [0]},
-    {"id": "J56", "name": "周期性断裂", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [0]},
-    {"id": "J57", "name": "阿喀琉斯之踵", "type": null, "tier": "junk", "reason": "metaphor", "chunks": [2]},
-    {"id": "J58", "name": "珞珈裂痕", "type": null, "tier": "junk", "reason": "metaphor", "chunks": [3]},
-    {"id": "J59", "name": "治理契机", "type": null, "tier": "junk", "reason": "metaphor", "chunks": [3, 4]},
-    {"id": "J60", "name": "舆论的放大镜", "type": null, "tier": "junk", "reason": "metaphor", "chunks": [0]},
-    {"id": "J61", "name": "二次舆情爆发", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [1], "match_keys": ["二次舆情爆发", "二次舆情的爆发"]},
-    {"id": "J62", "name": "二次舆情", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [1]},
-    {"id": "J63", "name": "治理现代化赤字", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [2]},
-    {"id": "J64", "name": "治理现代化危机", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [2]},
-    {"id": "J65", "name": "财政结构性失衡", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [2]},
-    {"id": "J66", "name": "程序正义缺位", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [2]},
-    {"id": "J67", "name": "信息透明度不足", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [2]},
-    {"id": "J68", "name": "对话机制的缺失", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [2]},
-    {"id": "J69", "name": "“快而浅”的回应策略", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [3], "match_keys": ["“快而浅”的回应策略", "快而浅的回应策略", "回应策略", "技术性应激反应"]},
-    {"id": "J70", "name": "“冲突加权”机制", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [3]},
-    {"id": "J71", "name": "平台的“冲突加权”机制", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [3]},
-    {"id": "J72", "name": "长尾效应", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [5]},
-    {"id": "J73", "name": "反复燃爆", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [5]},
-    {"id": "J74", "name": "W型", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [6]},
-    {"id": "J75", "name": "脉冲式", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [4]},
-    {"id": "J76", "name": "事件驱动", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [5]},
-    {"id": "J77", "name": "阶梯式跃升", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [5]},
-    {"id": "J78", "name": "热搜通胀", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [6]},
-    {"id": "J79", "name": "完整传播链", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [6], "notes": "The chain itself is a description of E02-E06, not a node."},
-    {"id": "J80", "name": "四方联动", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [2], "notes": "A collaboration mode, not an organisation."},
-    {"id": "J81", "name": "模板化传播", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [7]},
-    {"id": "J82", "name": "公众", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3, 5, 6]},
-    {"id": "J83", "name": "公众情感", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [1, 5]},
-    {"id": "J84", "name": "公众形象", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [0]},
-    {"id": "J85", "name": "在校生", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3]},
-    {"id": "J86", "name": "校友", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3], "notes": "The ontology's Alumni is a named alumni body; an unnamed mass in an identity-politics list is not it."},
-    {"id": "J87", "name": "家长", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3]},
-    {"id": "J88", "name": "本地居民", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3]},
-    {"id": "J89", "name": "外省网民", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3]},
-    {"id": "J90", "name": "教育从业者", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3]},
-    {"id": "J91", "name": "Z世代", "type": null, "tier": "junk", "reason": "out-of-ontology-type", "chunks": [7], "notes": "Demographic cohort; no type exists."},
-    {"id": "J92", "name": "女性用户", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [7]},
-    {"id": "J93", "name": "学生", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3, 5]},
-    {"id": "J94", "name": "UP主", "type": null, "tier": "junk", "reason": "role-class", "chunks": [7], "notes": "A class of creators; ontology Person is a named individual."},
-    {"id": "J95", "name": "意见领袖", "type": null, "tier": "junk", "reason": "role-class", "chunks": [5]},
-    {"id": "J96", "name": "媒体跟进", "type": null, "tier": "junk", "reason": "role-class", "chunks": [5]},
-    {"id": "J97", "name": "官方回应", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [5, 6]},
-    {"id": "J98", "name": "第三方检测报告", "type": null, "tier": "junk", "reason": "document-artifact", "chunks": [5]},
-    {"id": "J99", "name": "高校", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [2, 5], "notes": "Unnamed peer institutions."},
-    {"id": "J100", "name": "同类高校舆情事件", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [5]},
-    {"id": "J101", "name": "五大热点事件", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [4]},
-    {"id": "J102", "name": "周期性正面热点", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [4]},
-    {"id": "J103", "name": "突发性负面事件", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [4]},
-    {"id": "J104", "name": "后勤服务", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [1]},
-    {"id": "J105", "name": "个体冲突事件", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [1]},
-    {"id": "J106", "name": "舆情事件", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [1, 2, 3, 6, 7]},
-    {"id": "J107", "name": "舆情", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [4, 5, 7]},
-    {"id": "J108", "name": "负面舆情", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [4, 7]},
-    {"id": "J109", "name": "现代大学治理", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [1, 3]},
-    {"id": "J110", "name": "公共关系管理", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [1]},
-    {"id": "J111", "name": "声誉风险敞口", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [5]},
-    {"id": "J112", "name": "大学精神", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [1, 3]},
-    {"id": "J113", "name": "公信力", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [6, 7]},
-    {"id": "J114", "name": "内部治理", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [0, 1]},
-    {"id": "J115", "name": "学生冲突", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [0, 1]},
-    {"id": "J116", "name": "学术诚信", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [0, 1, 3]},
-    {"id": "J117", "name": "全国性的公共危机", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [0]},
-    {"id": "J118", "name": "百年历史底蕴", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [0]},
-    {"id": "J119", "name": "舆论场", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [4, 5, 7]},
-    {"id": "J120", "name": "平台", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [3, 4, 6], "notes": "Generic platform reference; it stands for E02-E06, not for a separate platform node."},
-    {"id": "J121", "name": "社交媒体", "type": null, "tier": "junk", "reason": "generic-mass", "chunks": [1, 6]},
-    {"id": "J122", "name": "热搜", "type": null, "tier": "junk", "reason": "metric", "chunks": [6, 7]},
-    {"id": "J123", "name": "热搜词条", "type": null, "tier": "junk", "reason": "metric", "chunks": [6, 7]},
-    {"id": "J124", "name": "热搜第一", "type": null, "tier": "junk", "reason": "metric", "chunks": [6, 7]},
-    {"id": "J125", "name": "付费推广", "type": null, "tier": "junk", "reason": "commercial-artifact", "chunks": [7]},
-    {"id": "J126", "name": "商业购买", "type": null, "tier": "junk", "reason": "commercial-artifact", "chunks": [7]},
-    {"id": "J127", "name": "极端修辞", "type": null, "tier": "junk", "reason": "rhetoric", "chunks": [7]},
-    {"id": "J128", "name": "爆燃", "type": null, "tier": "junk", "reason": "rhetoric", "chunks": [7]},
-    {"id": "J129", "name": "史诗级", "type": null, "tier": "junk", "reason": "rhetoric", "chunks": [7]},
-    {"id": "J130", "name": "鬼畜", "type": null, "tier": "junk", "reason": "content-format", "chunks": [7]},
-    {"id": "J131", "name": "数据可视化", "type": null, "tier": "junk", "reason": "content-format", "chunks": [7]},
-    {"id": "J132", "name": "RPG攻略", "type": null, "tier": "junk", "reason": "content-format", "chunks": [7]},
-    {"id": "J133", "name": "图书馆副本攻略", "type": null, "tier": "junk", "reason": "content-artifact", "chunks": [7]},
-    {"id": "J134", "name": "监控录像片段", "type": null, "tier": "junk", "reason": "content-artifact", "chunks": [7]},
-    {"id": "J135", "name": "漏水视频", "type": null, "tier": "junk", "reason": "content-artifact", "chunks": [7]},
-    {"id": "J136", "name": "黄牛交易直播", "type": null, "tier": "junk", "reason": "content-artifact", "chunks": [7]},
-    {"id": "J137", "name": "鼠患", "type": null, "tier": "junk", "reason": "event-no-ontology-type", "chunks": [7]},
-    {"id": "J138", "name": "社群动员", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [7]},
-    {"id": "J139", "name": "集体行动模式", "type": null, "tier": "junk", "reason": "pattern-mode", "chunks": [7]},
-    {"id": "J140", "name": "声量", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [4, 6]},
-    {"id": "J142", "name": "2023至2025年", "type": null, "tier": "junk", "reason": "metric", "chunks": [0], "notes": "Date range, not an entity. The dates belong on the edges they qualify (T01)."},
-    {"id": "J143", "name": "27个百分点", "type": null, "tier": "junk", "reason": "metric", "chunks": [2], "notes": "Same metric as J27 without the ↑ glyph: a surface-form variant, which is why the scorer normalises punctuation instead of trusting verbatim equality."},
-    {"id": "J145", "name": "公众的诉求", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [3]},
-    {"id": "J146", "name": "身份政治与群体撕裂", "type": null, "tier": "junk", "reason": "abstract-concept", "chunks": [3]}
+    {
+      "id": "J02",
+      "name": "本报告",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J03",
+      "name": "=== 武汉大学品牌声誉深度分析报告.pdf ===",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J04",
+      "name": "file:///Users/guohangjiang/Downloads/final_report__20250827_131630 (1).html",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        2,
+        4,
+        6
+      ]
+    },
+    {
+      "id": "J05",
+      "name": "2025/11/28 18:16",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        2,
+        4,
+        6
+      ],
+      "notes": "Footer render time, NOT an event time. A hypothesis that puts this into valid_at is hallucinating (see temporal_statements)."
+    },
+    {
+      "id": "J06",
+      "name": "1/25",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J07",
+      "name": "2/25",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        4
+      ]
+    },
+    {
+      "id": "J08",
+      "name": "3/25",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        6
+      ]
+    },
+    {
+      "id": "J09",
+      "name": "1.0 摘要与核心发现",
+      "type": null,
+      "tier": "junk",
+      "reason": "section-heading",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J10",
+      "name": "1.2 关键指标表现",
+      "type": null,
+      "tier": "junk",
+      "reason": "section-heading",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J11",
+      "name": "1.3 主要结论与战略启示",
+      "type": null,
+      "tier": "junk",
+      "reason": "section-heading",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J12",
+      "name": "2.0 品牌声量与影响力分析",
+      "type": null,
+      "tier": "junk",
+      "reason": "section-heading",
+      "chunks": [
+        4
+      ]
+    },
+    {
+      "id": "J13",
+      "name": "2.2 渠道声量分布",
+      "type": null,
+      "tier": "junk",
+      "reason": "section-heading",
+      "chunks": [
+        6
+      ]
+    },
+    {
+      "id": "J14",
+      "name": "平台扩散矩阵分析",
+      "type": null,
+      "tier": "junk",
+      "reason": "section-heading",
+      "chunks": [
+        6
+      ]
+    },
+    {
+      "id": "J15",
+      "name": "上图",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J16",
+      "name": "28.7亿+",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J17",
+      "name": "全平台总阅读量",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2,
+        5
+      ]
+    },
+    {
+      "id": "J18",
+      "name": "↑190% (vs. 五年总和)",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J19",
+      "name": "5起+",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J20",
+      "name": "重大舆情事件频次",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J21",
+      "name": "↑186% (vs. 五年同期)",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J22",
+      "name": "6.4%",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J23",
+      "name": "正向情感谷底值",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J24",
+      "name": "创985高校最低纪录",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J25",
+      "name": "58%",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J26",
+      "name": "二次舆情反弹概率",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J27",
+      "name": "↑27个百分点",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ],
+      "match_keys": [
+        "↑27个百分点",
+        "27个百分点"
+      ]
+    },
+    {
+      "id": "J28",
+      "name": "65.4",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2,
+        5
+      ]
+    },
+    {
+      "id": "J29",
+      "name": "图书馆事件影响力指数",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J30",
+      "name": "高出同类事件均值10.8%",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J31",
+      "name": "1937人",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ],
+      "notes": "The count belongs to E07's extra_facts, not a node."
+    },
+    {
+      "id": "J32",
+      "name": "68%",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J33",
+      "name": "67%",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J34",
+      "name": "183%",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J35",
+      "name": "2.1小时",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J36",
+      "name": "3-5倍",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J37",
+      "name": "1.9倍",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        4,
+        5
+      ]
+    },
+    {
+      "id": "J38",
+      "name": "47个相关热搜词条",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J39",
+      "name": "43次",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J40",
+      "name": "7个热搜包",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J41",
+      "name": "24小时",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J42",
+      "name": "1-2年",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        3
+      ],
+      "notes": "A repair projection, not a validity window."
+    },
+    {
+      "id": "J43",
+      "name": "过去五年相关话题阅读量的总和",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        4,
+        5
+      ]
+    },
+    {
+      "id": "J44",
+      "name": "图书馆诬告案",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        5
+      ],
+      "notes": "An event; the ontology has no Event type, so any node for it is off-ontology."
+    },
+    {
+      "id": "J45",
+      "name": "图书馆事件",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        2,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J46",
+      "name": "甲醛宿舍",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        5,
+        7
+      ],
+      "notes": "Also an implicit facility; no Location/Facility type exists in this ontology."
+    },
+    {
+      "id": "J47",
+      "name": "甲醛事件",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J48",
+      "name": "樱花",
+      "type": null,
+      "tier": "junk",
+      "reason": "out-of-ontology-type",
+      "chunks": [
+        3,
+        4,
+        5
+      ],
+      "notes": "A cultural symbol; no Symbol/Location type exists. Its status belongs in E01's extra_facts."
+    },
+    {
+      "id": "J49",
+      "name": "樱花季",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        4,
+        7
+      ]
+    },
+    {
+      "id": "J50",
+      "name": "病毒学",
+      "type": null,
+      "tier": "junk",
+      "reason": "out-of-ontology-type",
+      "chunks": [
+        0
+      ],
+      "notes": "Research field; belongs in E01's extra_facts."
+    },
+    {
+      "id": "J51",
+      "name": "甲醛",
+      "type": null,
+      "tier": "junk",
+      "reason": "out-of-ontology-type",
+      "chunks": [
+        5,
+        7
+      ],
+      "notes": "Substance/issue, not an entity."
+    },
+    {
+      "id": "J52",
+      "name": "顶尖985高校",
+      "type": null,
+      "tier": "junk",
+      "reason": "classification-label",
+      "chunks": [
+        0
+      ],
+      "notes": "An attribute value of E01, not a node."
+    },
+    {
+      "id": "J53",
+      "name": "985滤镜破碎",
+      "type": null,
+      "tier": "junk",
+      "reason": "public-perception",
+      "chunks": [
+        1,
+        5
+      ]
+    },
+    {
+      "id": "J54",
+      "name": "品牌声誉",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        7
+      ]
+    },
+    {
+      "id": "J55",
+      "name": "声望悖论",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J56",
+      "name": "周期性断裂",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J57",
+      "name": "阿喀琉斯之踵",
+      "type": null,
+      "tier": "junk",
+      "reason": "metaphor",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J58",
+      "name": "珞珈裂痕",
+      "type": null,
+      "tier": "junk",
+      "reason": "metaphor",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J59",
+      "name": "治理契机",
+      "type": null,
+      "tier": "junk",
+      "reason": "metaphor",
+      "chunks": [
+        3,
+        4
+      ]
+    },
+    {
+      "id": "J60",
+      "name": "舆论的放大镜",
+      "type": null,
+      "tier": "junk",
+      "reason": "metaphor",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J61",
+      "name": "二次舆情爆发",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        1
+      ],
+      "match_keys": [
+        "二次舆情爆发",
+        "二次舆情的爆发"
+      ]
+    },
+    {
+      "id": "J62",
+      "name": "二次舆情",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1
+      ]
+    },
+    {
+      "id": "J63",
+      "name": "治理现代化赤字",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J64",
+      "name": "治理现代化危机",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J65",
+      "name": "财政结构性失衡",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J66",
+      "name": "程序正义缺位",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J67",
+      "name": "信息透明度不足",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J68",
+      "name": "对话机制的缺失",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        2
+      ]
+    },
+    {
+      "id": "J69",
+      "name": "“快而浅”的回应策略",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        3
+      ],
+      "match_keys": [
+        "“快而浅”的回应策略",
+        "快而浅的回应策略",
+        "回应策略",
+        "技术性应激反应"
+      ]
+    },
+    {
+      "id": "J70",
+      "name": "“冲突加权”机制",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J71",
+      "name": "平台的“冲突加权”机制",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J72",
+      "name": "长尾效应",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J73",
+      "name": "反复燃爆",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J74",
+      "name": "W型",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        6
+      ]
+    },
+    {
+      "id": "J75",
+      "name": "脉冲式",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        4
+      ]
+    },
+    {
+      "id": "J76",
+      "name": "事件驱动",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J77",
+      "name": "阶梯式跃升",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J78",
+      "name": "热搜通胀",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        6
+      ]
+    },
+    {
+      "id": "J79",
+      "name": "完整传播链",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        6
+      ],
+      "notes": "The chain itself is a description of E02-E06, not a node."
+    },
+    {
+      "id": "J80",
+      "name": "四方联动",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        2
+      ],
+      "notes": "A collaboration mode, not an organisation."
+    },
+    {
+      "id": "J81",
+      "name": "模板化传播",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J82",
+      "name": "公众",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3,
+        5,
+        6
+      ]
+    },
+    {
+      "id": "J83",
+      "name": "公众情感",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1,
+        5
+      ]
+    },
+    {
+      "id": "J84",
+      "name": "公众形象",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J85",
+      "name": "在校生",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J86",
+      "name": "校友",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3
+      ],
+      "notes": "The ontology's Alumni is a named alumni body; an unnamed mass in an identity-politics list is not it."
+    },
+    {
+      "id": "J87",
+      "name": "家长",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J88",
+      "name": "本地居民",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J89",
+      "name": "外省网民",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J90",
+      "name": "教育从业者",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J91",
+      "name": "Z世代",
+      "type": null,
+      "tier": "junk",
+      "reason": "out-of-ontology-type",
+      "chunks": [
+        7
+      ],
+      "notes": "Demographic cohort; no type exists."
+    },
+    {
+      "id": "J92",
+      "name": "女性用户",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J93",
+      "name": "学生",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3,
+        5
+      ]
+    },
+    {
+      "id": "J94",
+      "name": "UP主",
+      "type": null,
+      "tier": "junk",
+      "reason": "role-class",
+      "chunks": [
+        7
+      ],
+      "notes": "A class of creators; ontology Person is a named individual."
+    },
+    {
+      "id": "J95",
+      "name": "意见领袖",
+      "type": null,
+      "tier": "junk",
+      "reason": "role-class",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J96",
+      "name": "媒体跟进",
+      "type": null,
+      "tier": "junk",
+      "reason": "role-class",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J97",
+      "name": "官方回应",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        5,
+        6
+      ]
+    },
+    {
+      "id": "J98",
+      "name": "第三方检测报告",
+      "type": null,
+      "tier": "junk",
+      "reason": "document-artifact",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J99",
+      "name": "高校",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        2,
+        5
+      ],
+      "notes": "Unnamed peer institutions."
+    },
+    {
+      "id": "J100",
+      "name": "同类高校舆情事件",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J101",
+      "name": "五大热点事件",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        4
+      ]
+    },
+    {
+      "id": "J102",
+      "name": "周期性正面热点",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        4
+      ]
+    },
+    {
+      "id": "J103",
+      "name": "突发性负面事件",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        4
+      ]
+    },
+    {
+      "id": "J104",
+      "name": "后勤服务",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1
+      ]
+    },
+    {
+      "id": "J105",
+      "name": "个体冲突事件",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        1
+      ]
+    },
+    {
+      "id": "J106",
+      "name": "舆情事件",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1,
+        2,
+        3,
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J107",
+      "name": "舆情",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        4,
+        5,
+        7
+      ]
+    },
+    {
+      "id": "J108",
+      "name": "负面舆情",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        4,
+        7
+      ]
+    },
+    {
+      "id": "J109",
+      "name": "现代大学治理",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1,
+        3
+      ]
+    },
+    {
+      "id": "J110",
+      "name": "公共关系管理",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1
+      ]
+    },
+    {
+      "id": "J111",
+      "name": "声誉风险敞口",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        5
+      ]
+    },
+    {
+      "id": "J112",
+      "name": "大学精神",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1,
+        3
+      ]
+    },
+    {
+      "id": "J113",
+      "name": "公信力",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J114",
+      "name": "内部治理",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "J115",
+      "name": "学生冲突",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "J116",
+      "name": "学术诚信",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0,
+        1,
+        3
+      ]
+    },
+    {
+      "id": "J117",
+      "name": "全国性的公共危机",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J118",
+      "name": "百年历史底蕴",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0
+      ]
+    },
+    {
+      "id": "J119",
+      "name": "舆论场",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        4,
+        5,
+        7
+      ]
+    },
+    {
+      "id": "J120",
+      "name": "平台",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        3,
+        4,
+        6
+      ],
+      "notes": "Generic platform reference; it stands for E02-E06, not for a separate platform node."
+    },
+    {
+      "id": "J121",
+      "name": "社交媒体",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        1,
+        6
+      ]
+    },
+    {
+      "id": "J122",
+      "name": "热搜",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J123",
+      "name": "热搜词条",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J124",
+      "name": "热搜第一",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": "J125",
+      "name": "付费推广",
+      "type": null,
+      "tier": "junk",
+      "reason": "commercial-artifact",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J126",
+      "name": "商业购买",
+      "type": null,
+      "tier": "junk",
+      "reason": "commercial-artifact",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J127",
+      "name": "极端修辞",
+      "type": null,
+      "tier": "junk",
+      "reason": "rhetoric",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J128",
+      "name": "爆燃",
+      "type": null,
+      "tier": "junk",
+      "reason": "rhetoric",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J129",
+      "name": "史诗级",
+      "type": null,
+      "tier": "junk",
+      "reason": "rhetoric",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J130",
+      "name": "鬼畜",
+      "type": null,
+      "tier": "junk",
+      "reason": "content-format",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J131",
+      "name": "数据可视化",
+      "type": null,
+      "tier": "junk",
+      "reason": "content-format",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J132",
+      "name": "RPG攻略",
+      "type": null,
+      "tier": "junk",
+      "reason": "content-format",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J133",
+      "name": "图书馆副本攻略",
+      "type": null,
+      "tier": "junk",
+      "reason": "content-artifact",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J134",
+      "name": "监控录像片段",
+      "type": null,
+      "tier": "junk",
+      "reason": "content-artifact",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J135",
+      "name": "漏水视频",
+      "type": null,
+      "tier": "junk",
+      "reason": "content-artifact",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J136",
+      "name": "黄牛交易直播",
+      "type": null,
+      "tier": "junk",
+      "reason": "content-artifact",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J137",
+      "name": "鼠患",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J138",
+      "name": "社群动员",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J139",
+      "name": "集体行动模式",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        7
+      ]
+    },
+    {
+      "id": "J140",
+      "name": "声量",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        4,
+        6
+      ]
+    },
+    {
+      "id": "J142",
+      "name": "2023至2025年",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        0
+      ],
+      "notes": "Date range, not an entity. The dates belong on the edges they qualify (T01)."
+    },
+    {
+      "id": "J143",
+      "name": "27个百分点",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ],
+      "notes": "Same metric as J27 without the ↑ glyph: a surface-form variant, which is why the scorer normalises punctuation instead of trusting verbatim equality."
+    },
+    {
+      "id": "J145",
+      "name": "公众的诉求",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J146",
+      "name": "身份政治与群体撕裂",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        3
+      ]
+    },
+    {
+      "id": "J147",
+      "name": "回应",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        3,
+        5,
+        6
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J148",
+      "name": "社交媒体环境",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J149",
+      "name": "民意量化",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J150",
+      "name": "集体认知",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        1
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J151",
+      "name": "透明-共治",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        3
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J152",
+      "name": "协同研判",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J153",
+      "name": "品牌声量",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        4
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J154",
+      "name": "治理",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J155",
+      "name": "支持",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J156",
+      "name": "品牌声量与影响力",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        4
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J157",
+      "name": "整体治理能力",
+      "type": null,
+      "tier": "junk",
+      "reason": "abstract-concept",
+      "chunks": [
+        0,
+        1
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an abstract theme no ontology type fits (§2.2/§2.3 abstract-concept)."
+    },
+    {
+      "id": "J158",
+      "name": "舆情危机",
+      "type": null,
+      "tier": "junk",
+      "reason": "event-no-ontology-type",
+      "chunks": [
+        0
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: event-like, and the ontology has no Event type (§2.2)."
+    },
+    {
+      "id": "J159",
+      "name": "全平台",
+      "type": null,
+      "tier": "junk",
+      "reason": "generic-mass",
+      "chunks": [
+        2,
+        4,
+        5
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: an undifferentiated mass, not a typed node (§2.3 generic-mass)."
+    },
+    {
+      "id": "J160",
+      "name": "2023至2025",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        0
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: a date range / count / volume is a stated quantity, not an entity (§2.3 metric, cf. J142)."
+    },
+    {
+      "id": "J161",
+      "name": "2023年9月至2025年8月",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        4
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: a date range / count / volume is a stated quantity, not an entity (§2.3 metric, cf. J142)."
+    },
+    {
+      "id": "J162",
+      "name": "五年总和",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        2
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: a date range / count / volume is a stated quantity, not an entity (§2.3 metric, cf. J142)."
+    },
+    {
+      "id": "J163",
+      "name": "28.7亿次",
+      "type": null,
+      "tier": "junk",
+      "reason": "metric",
+      "chunks": [
+        4,
+        5
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: a date range / count / volume is a stated quantity, not an entity (§2.3 metric, cf. J142)."
+    },
+    {
+      "id": "J164",
+      "name": "校方传统的、行政逻辑优先的应对模式",
+      "type": null,
+      "tier": "junk",
+      "reason": "pattern-mode",
+      "chunks": [
+        1
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: a described mode of behaviour, not an entity (§2.3 pattern-mode)."
+    },
+    {
+      "id": "J165",
+      "name": "民意",
+      "type": null,
+      "tier": "junk",
+      "reason": "public-perception",
+      "chunks": [
+        0
+      ],
+      "notes": "Exp-5 review queue, ruled junk by rule: a stated public attitude, not an entity (§2.3 public-perception)."
+    }
   ],
   "edges": [
     {
-      "id": "R01", "source": "E02", "source_name": "微博", "relation": "REPORTS_ON", "target": "E01", "target_name": "武汉大学",
+      "id": "R01",
+      "source": "E02",
+      "source_name": "微博",
+      "relation": "REPORTS_ON",
+      "target": "E01",
+      "target_name": "武汉大学",
       "tier": "gold",
       "evidence": "chunk 6-7: '微博：作为舆情首发和引爆的主阵地，贡献了68%的首发声量' — Weibo's described function is releasing/amplifying WHU public-opinion events.",
-      "temporal": {"valid_at": "2023-09", "invalid_at": "2025-08", "basis": "chunk 4: '在2023年9月至2025年8月的监测周期内…' + chunk 7: '本周期内共产生47个相关热搜词条'"},
-      "attributes": {"fact": "微博是武汉大学舆情事件的首发与引爆主阵地，贡献68%首发声量"},
+      "temporal": {
+        "valid_at": "2023-09",
+        "invalid_at": "2025-08",
+        "basis": "chunk 4: '在2023年9月至2025年8月的监测周期内…' + chunk 7: '本周期内共产生47个相关热搜词条'"
+      },
+      "attributes": {
+        "fact": "微博是武汉大学舆情事件的首发与引爆主阵地，贡献68%首发声量"
+      },
       "notes": "REPORTS_ON is the only ontology edge type whose source is MediaOutlet and whose target is University, so every platform→WHU articulation is forced into it."
     },
     {
-      "id": "R02", "source": "E03", "source_name": "抖音", "relation": "REPORTS_ON", "target": "E01", "target_name": "武汉大学",
+      "id": "R02",
+      "source": "E03",
+      "source_name": "抖音",
+      "relation": "REPORTS_ON",
+      "target": "E01",
+      "target_name": "武汉大学",
       "tier": "gold",
       "evidence": "chunk 6-7: '抖音放大' / '抖音/短视频平台：是视觉冲击和情绪放大的核心渠道，贡献了67%的视频类声量'",
-      "temporal": {"valid_at": "2023-09", "invalid_at": "2025-08", "basis": "same monitoring period as R01"},
-      "attributes": {"fact": "抖音放大武汉大学舆情事件的视觉冲击，贡献67%视频类声量"},
+      "temporal": {
+        "valid_at": "2023-09",
+        "invalid_at": "2025-08",
+        "basis": "same monitoring period as R01"
+      },
+      "attributes": {
+        "fact": "抖音放大武汉大学舆情事件的视觉冲击，贡献67%视频类声量"
+      },
       "notes": ""
     },
     {
-      "id": "R03", "source": "E04", "source_name": "小红书", "relation": "REPORTS_ON", "target": "E01", "target_name": "武汉大学",
+      "id": "R03",
+      "source": "E04",
+      "source_name": "小红书",
+      "relation": "REPORTS_ON",
+      "target": "E01",
+      "target_name": "武汉大学",
       "tier": "gold",
       "evidence": "chunk 6-7: '小红书深化' / '小红书：成为Z世代…“维权”和“避坑”的主要阵地。鼠患、甲醛等后勤问题均首曝于此'",
-      "temporal": {"valid_at": "2023-09", "invalid_at": "2025-08", "basis": "same monitoring period as R01"},
-      "attributes": {"fact": "小红书是武汉大学后勤舆情的深化与首曝渠道"},
+      "temporal": {
+        "valid_at": "2023-09",
+        "invalid_at": "2025-08",
+        "basis": "same monitoring period as R01"
+      },
+      "attributes": {
+        "fact": "小红书是武汉大学后勤舆情的深化与首曝渠道"
+      },
       "notes": ""
     },
     {
-      "id": "R04", "source": "E05", "source_name": "B站", "relation": "REPORTS_ON", "target": "E01", "target_name": "武汉大学",
+      "id": "R04",
+      "source": "E05",
+      "source_name": "B站",
+      "relation": "REPORTS_ON",
+      "target": "E01",
+      "target_name": "武汉大学",
       "tier": "gold",
       "evidence": "chunk 6-7: 'B站解构' / 'B站与知乎：扮演了舆情“解构”与“思辨”的后市场角色'",
-      "temporal": {"valid_at": "2023-09", "invalid_at": "2025-08", "basis": "same monitoring period as R01"},
-      "attributes": {"fact": "B站对武汉大学舆情事件进行解构与二次创作"},
+      "temporal": {
+        "valid_at": "2023-09",
+        "invalid_at": "2025-08",
+        "basis": "same monitoring period as R01"
+      },
+      "attributes": {
+        "fact": "B站对武汉大学舆情事件进行解构与二次创作"
+      },
       "notes": ""
     },
     {
-      "id": "R05", "source": "E06", "source_name": "知乎", "relation": "REPORTS_ON", "target": "E01", "target_name": "武汉大学",
+      "id": "R05",
+      "source": "E06",
+      "source_name": "知乎",
+      "relation": "REPORTS_ON",
+      "target": "E01",
+      "target_name": "武汉大学",
       "tier": "gold",
       "evidence": "chunk 6-7: '知乎思辨' / 'B站与知乎：扮演了舆情“解构”与“思辨”的后市场角色'",
-      "temporal": {"valid_at": "2023-09", "invalid_at": "2025-08", "basis": "same monitoring period as R01"},
-      "attributes": {"fact": "知乎对武汉大学舆情事件进行思辨与讨论"},
+      "temporal": {
+        "valid_at": "2023-09",
+        "invalid_at": "2025-08",
+        "basis": "same monitoring period as R01"
+      },
+      "attributes": {
+        "fact": "知乎对武汉大学舆情事件进行思辨与讨论"
+      },
       "notes": ""
     }
   ],
   "rejected_articulations": [
-    {"relation": "RESPONDS_TO", "source": "校方（E01）", "target": "学生/公众", "why": "Ontology RESPONDS_TO targets Person; the text's target is an unnamed mass (公众/学生), so expressing it materialises a junk Person node. The real articulation is '校方发布“合格”通报' — a document fact, not an ontology edge."},
-    {"relation": "REGULATES", "source": "?", "target": "E01", "why": "No government agency is named anywhere in this slice; 政府监管 appears only as an abstract theme."},
-    {"relation": "WORKS_FOR / STUDIES_AT / REPRESENTS / COMMENTS_ON", "source": "-", "target": "-", "why": "No named individual, student, professor, journalist or alumni body exists in this slice."},
-    {"relation": "SUPPORTS / OPPOSES", "source": "E07", "target": "E01", "why": "Ontology gap: SUPPORTS/OPPOSES take Person as source only. The 1937-person collective维权 action toward 武汉大学 cannot be expressed, so it is recorded as a rejected articulation rather than a scored edge."},
-    {"relation": "平台传播链 微博→抖音→小红书→B站→知乎", "source": "E02..E06", "target": "E02..E06", "why": "Ontology gap — added on the second adjudication's finding (2026-11-17): no MediaOutlet→MediaOutlet edge type exists, and the report's 完整传播链 is exactly a platform-to-platform chain. AFFILIATED_WITH is Organization→Organization only and states affiliation, not propagation, so it cannot be borrowed."},
-    {"relation": "any edge to 图书馆诬告案 / 甲醛宿舍 / 樱花 / 病毒学", "source": "-", "target": "-", "why": "Ontology gap: no Event, Location, Symbol or Field type exists, so these have no legal endpoint. The second adjudication labels the two events *borderline* where this gold labels them *junk*; both readings conclude no node may exist, so the difference is a label, not a scoring consequence."},
-    {"relation": "AFFILIATED_WITH 分析论坛→武汉大学 (or any Organization→University edge)", "source": "B04", "target": "E01", "why": "Ontology gap: AFFILIATED_WITH covers Organization→Organization only, and the borderlines are report-internal engines anyway."},
-    {"relation": "武汉大学 REPORTS_ON 平台", "source": "E01", "target": "E02", "why": "Direction error trap: the text has the platforms reporting on the university, never the reverse."}
+    {
+      "relation": "RESPONDS_TO",
+      "source": "校方（E01）",
+      "target": "学生/公众",
+      "why": "Ontology RESPONDS_TO targets Person; the text's target is an unnamed mass (公众/学生), so expressing it materialises a junk Person node. The real articulation is '校方发布“合格”通报' — a document fact, not an ontology edge."
+    },
+    {
+      "relation": "REGULATES",
+      "source": "?",
+      "target": "E01",
+      "why": "No government agency is named anywhere in this slice; 政府监管 appears only as an abstract theme."
+    },
+    {
+      "relation": "WORKS_FOR / STUDIES_AT / REPRESENTS / COMMENTS_ON",
+      "source": "-",
+      "target": "-",
+      "why": "No named individual, student, professor, journalist or alumni body exists in this slice."
+    },
+    {
+      "relation": "SUPPORTS / OPPOSES",
+      "source": "E07",
+      "target": "E01",
+      "why": "Ontology gap: SUPPORTS/OPPOSES take Person as source only. The 1937-person collective维权 action toward 武汉大学 cannot be expressed, so it is recorded as a rejected articulation rather than a scored edge."
+    },
+    {
+      "relation": "平台传播链 微博→抖音→小红书→B站→知乎",
+      "source": "E02..E06",
+      "target": "E02..E06",
+      "why": "Ontology gap — added on the second adjudication's finding (2026-11-17): no MediaOutlet→MediaOutlet edge type exists, and the report's 完整传播链 is exactly a platform-to-platform chain. AFFILIATED_WITH is Organization→Organization only and states affiliation, not propagation, so it cannot be borrowed."
+    },
+    {
+      "relation": "any edge to 图书馆诬告案 / 甲醛宿舍 / 樱花 / 病毒学",
+      "source": "-",
+      "target": "-",
+      "why": "Ontology gap: no Event, Location, Symbol or Field type exists, so these have no legal endpoint. The second adjudication labels the two events *borderline* where this gold labels them *junk*; both readings conclude no node may exist, so the difference is a label, not a scoring consequence."
+    },
+    {
+      "relation": "AFFILIATED_WITH 分析论坛→武汉大学 (or any Organization→University edge)",
+      "source": "B04",
+      "target": "E01",
+      "why": "Ontology gap: AFFILIATED_WITH covers Organization→Organization only, and the borderlines are report-internal engines anyway."
+    },
+    {
+      "relation": "武汉大学 REPORTS_ON 平台",
+      "source": "E01",
+      "target": "E02",
+      "why": "Direction error trap: the text has the platforms reporting on the university, never the reverse."
+    }
   ],
   "temporal_statements": [
-    {"id": "T01", "statement": "2023年9月—2025年8月 监测周期", "chunks": [4, 7], "attaches_to": "R01-R05", "scoreable": true},
-    {"id": "T02", "statement": "图书馆事件自2023年7月发生，直至2025年8月仍在持续", "chunks": [5], "attaches_to": "J45 (junk-classified event)", "scoreable": false, "why_not": "No Event type exists, so no node or edge can carry these dates."},
-    {"id": "T03", "statement": "2025/11/28 18:16 (footer)", "chunks": [2, 4, 6], "attaches_to": "document boilerplate", "scoreable": false, "why_not": "Render timestamp, not an event time. Using it as valid_at is a temporal hallucination and is penalised by the scorer."},
-    {"id": "T04", "statement": "樱花季（周期性年度事件，无年份）", "chunks": [4, 7], "attaches_to": "J49", "scoreable": false, "why_not": "No year stated; junk-classified."},
-    {"id": "T05", "statement": "修复预计需要1-2年", "chunks": [3], "attaches_to": "abstract projection", "scoreable": false, "why_not": "Future projection, not a validity window."},
-    {"id": "T06", "statement": "24小时内 / 平均延迟2.1小时", "chunks": [5, 7], "attaches_to": "durations", "scoreable": false, "why_not": "Durations, not dates."}
+    {
+      "id": "T01",
+      "statement": "2023年9月—2025年8月 监测周期",
+      "chunks": [
+        4,
+        7
+      ],
+      "attaches_to": "R01-R05",
+      "scoreable": true
+    },
+    {
+      "id": "T02",
+      "statement": "图书馆事件自2023年7月发生，直至2025年8月仍在持续",
+      "chunks": [
+        5
+      ],
+      "attaches_to": "J45 (junk-classified event)",
+      "scoreable": false,
+      "why_not": "No Event type exists, so no node or edge can carry these dates."
+    },
+    {
+      "id": "T03",
+      "statement": "2025/11/28 18:16 (footer)",
+      "chunks": [
+        2,
+        4,
+        6
+      ],
+      "attaches_to": "document boilerplate",
+      "scoreable": false,
+      "why_not": "Render timestamp, not an event time. Using it as valid_at is a temporal hallucination and is penalised by the scorer."
+    },
+    {
+      "id": "T04",
+      "statement": "樱花季（周期性年度事件，无年份）",
+      "chunks": [
+        4,
+        7
+      ],
+      "attaches_to": "J49",
+      "scoreable": false,
+      "why_not": "No year stated; junk-classified."
+    },
+    {
+      "id": "T05",
+      "statement": "修复预计需要1-2年",
+      "chunks": [
+        3
+      ],
+      "attaches_to": "abstract projection",
+      "scoreable": false,
+      "why_not": "Future projection, not a validity window."
+    },
+    {
+      "id": "T06",
+      "statement": "24小时内 / 平均延迟2.1小时",
+      "chunks": [
+        5,
+        7
+      ],
+      "attaches_to": "durations",
+      "scoreable": false,
+      "why_not": "Durations, not dates."
+    }
   ],
   "known_limitations": [
     "This slice is chapter 1 (an abstract summary). It contains ONE named institution and no named individuals, so entity-type coverage is inherently narrow and the gold-edge count is 5 — an arm cannot be ranked on edge recall from this slice alone.",
