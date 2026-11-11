@@ -992,15 +992,17 @@ def _normalize_to_schema(payload, response_model, messages):
     return normalized if changed else payload
 
 
-def _try_salvage_rebuild(text: str, start: int, cut: int):
-    """Rebuild ``text[start:cut]`` as a closed single-array payload, or None.
+def _try_salvage_rebuild(text: str, start: int, array_open: int, elements: str):
+    """Rebuild a single-array payload from an element slice, or None.
 
-    A candidate is accepted only when the rebuilt string actually parses and
-    the lone top-level key maps to a list of objects — the scanner alone can be
-    fooled by a defect body whose quotes balance out later, so every cut is
-    validated by parsing, not by structure."""
+    ``elements`` is the verbatim slice between element boundaries. A candidate
+    is accepted only when the rebuilt string actually parses and the lone
+    top-level key maps to a list of objects -- the scanner alone can be fooled
+    by a defect body whose quotes balance out later, so every candidate is
+    validated by parsing, not by structure.
+    """
     try:
-        payload = json.loads(text[start:cut] + "]}")
+        payload = json.loads(text[start:array_open] + "[" + elements + "]}")
     except json.JSONDecodeError:
         return None
     if not isinstance(payload, dict) or len(payload) != 1:
@@ -1010,37 +1012,40 @@ def _try_salvage_rebuild(text: str, start: int, cut: int):
         return None
     if not all(isinstance(e, dict) for e in value):
         return None
-    return (payload, len(value), cut)
+    return (payload, len(value))
 
 
 def _salvage_truncated_json(text: str, allow_empty: bool = False):
-    """Bounded salvage of an unparseable extraction body (HANDOFF §9 G.1 arms 2+3).
+    """Bounded salvage of an unparseable extraction body (HANDOFF section 9 G.1 arms 2-5).
 
-    A 1.7B response regularly dies mid-payload — at the M1 clamp
-    (``finish_reason="length"`` — chunk 6 of the frozen slice, cut at char 10037
-    after 367 lines of COMPLETE edge objects) or as a generation defect
-    (``finish_reason="stop"`` — an unescaped quote inside a value, e.g. the
-    confirmation repeat's chunk 6 at char 1863). Either way the pre-arm seam lost
-    the whole chunk even though the calls before it had succeeded. This recovers
-    the longest prefix of COMPLETE elements the response carries, so the chunk
-    keeps what the model actually finished.
+    A 1.7B response regularly dies mid-payload: at the M1 clamp
+    (``finish_reason="length"`` -- chunk 6 of the frozen slice, cut at char
+    10037 after 367 lines of COMPLETE edge objects); as a stop-finished
+    generation defect (an unescaped quote inside a value, e.g. the confirmation
+    repeat's chunk 6 at char 1863); or as a KEY the model dropped entirely (the
+    edgedesc repeat's chunk 6: ``{"id": 0, "name": "...", -1}`` -- a bare value
+    where the property name belongs). In every case the pre-arm seam lost the
+    whole chunk even though the calls before it had already succeeded. This
+    recovers the model's OWN finished elements so the chunk keeps its work.
 
-    Contract (deliberately conservative — this function never invents content):
+    Contract (deliberately conservative -- this function never invents content):
+
     * it only rebuilds the single-array shape every extraction response model
-      uses (``{"<key>": [<elements>]}\``); a body with no root object, no array
-      value, or a second top-level array, recovers nothing;
-    * every candidate cut is validated by PARSING, because a defect body's later
+      uses; a body with no root object, no array value, or a second top-level
+      array, recovers nothing;
+    * every candidate is validated by PARSING, because a defect body's later
       text can balance out and fool a pure structural scan;
-    * a truncated body with >=1 complete element returns that prefix;
-    * a body with no complete element returns an empty list ONLY when the caller
-      passes ``allow_empty`` (i.e. the clamp is certified by ``finish_reason``) —
-      the chunk then keeps its entities and loses only the call that was garbage
-      anyway;
-    * a defect body (``finish_reason="stop"``) with no complete element returns
-      ``None`` — the caller's retry path is preserved for genuinely transient
-      defects.
+    * the longest element slice wins; when a corrupt EARLY element makes every
+      from-element-0 rebuild unparsable, the salvage retries from later element
+      boundaries and DROPS the corrupt early elements (arm 5) -- the count
+      returns as ``dropped_early`` so no report can hide it;
+    * a body with no recoverable element returns an empty list ONLY when the
+      caller passes ``allow_empty`` (the clamp is certified by ``finish_reason``);
+    * a defect body (``finish_reason="stop"``) with no recoverable element
+      returns ``None`` -- the caller's retry path is preserved.
 
-    Returns ``(payload, kept_elements, cut_index, empty)`` or ``None``.
+    Returns ``(payload, kept_elements, cut_index, empty, dropped_early)`` or
+    ``None``.
     """
     if not text:
         return None
@@ -1049,7 +1054,7 @@ def _salvage_truncated_json(text: str, allow_empty: bool = False):
         return None
     key_match = None
     array_open = -1
-    best = None  # (payload, kept, cut) — the longest prefix that parsed
+    bounds: List[int] = []  # [0] = just after '[', then after each element
     depth = 0
     in_string = False
     escape = False
@@ -1065,9 +1070,7 @@ def _salvage_truncated_json(text: str, allow_empty: bool = False):
             elif ch == '"':
                 in_string = False
                 if depth == 2:
-                    candidate = _try_salvage_rebuild(text, start, i + 1)
-                    if candidate is not None:
-                        best = candidate  # a scalar-string element ended
+                    bounds.append(i + 1)  # a scalar-string element ended
             i += 1
             continue
         if ch == '"':
@@ -1081,15 +1084,10 @@ def _salvage_truncated_json(text: str, allow_empty: bool = False):
                 key_match = re.match(r'\s*\{\s*"([^"]+)"\s*:\s*$', text[start:array_open])
                 if key_match is None:
                     return None
+                bounds.append(i + 1)
         elif ch in "}]":
             if depth == 3 and ch == "}":
-                candidate = _try_salvage_rebuild(text, start, i + 1)
-                if candidate is not None:
-                    best = candidate
-            elif depth == 2 and ch == "]":
-                candidate = _try_salvage_rebuild(text, start, i + 1)
-                if candidate is not None:
-                    best = candidate
+                bounds.append(i + 1)  # an object element closed
             depth -= 1
             if depth == 0:
                 break  # the root object closed: body was complete
@@ -1098,11 +1096,30 @@ def _salvage_truncated_json(text: str, allow_empty: bool = False):
         i += 1
     if array_open < 0 or key_match is None:
         return None
-    if best is not None:
-        return (best[0], best[1], best[2], False)
+    # No complete element anywhere: only the certified-clamp caller accepts an
+    # empty answer (the chunk keeps its other calls); a defect still returns
+    # None so the retry path owns it.
+    if len(bounds) < 2:
+        if not allow_empty:
+            return None
+        return ({key_match.group(1): []}, 0, bounds[0], True, 0)
+    # Longest slice from the earliest boundary first; only a corrupt early
+    # element pushes the start boundary later (each attempt drops exactly the
+    # elements before it, and the payload reports how many).
+    for start_idx in range(len(bounds) - 1):
+        for end_idx in range(len(bounds) - 1, start_idx, -1):
+            elements = text[bounds[start_idx]:bounds[end_idx]]
+            if start_idx:
+                elements = elements.lstrip()
+                if elements.startswith(","):
+                    elements = elements[1:].lstrip()
+            candidate = _try_salvage_rebuild(text, start, array_open, elements)
+            if candidate is not None:
+                payload, kept = candidate
+                return (payload, kept, bounds[end_idx], False, start_idx)
     if not allow_empty:
         return None
-    return ({key_match.group(1): []}, 0, start, True)
+    return ({key_match.group(1): []}, 0, bounds[0], True, 0)
 
 
 def _build_llm_client():
@@ -1246,14 +1263,15 @@ def _build_llm_client():
                         allow_empty=True,
                     )
                     if salvage is not None:
-                        payload, kept, cut, empty = salvage
+                        payload, kept, cut, empty, dropped = salvage
                         logger.warning(
                             "graphiti LLM response [salvaged-prefix]: model=%s "
-                            "kept_elements=%d empty=%s cut_bytes=%d body_bytes=%d "
-                            "finish_reason=%s",
+                            "kept_elements=%d empty=%s dropped_early=%d "
+                            "cut_bytes=%d body_bytes=%d finish_reason=%s",
                             getattr(response_model, "__name__", response_model),
                             kept,
                             empty,
+                            dropped,
                             cut,
                             len(result),
                             finish_reason,
@@ -1285,12 +1303,14 @@ def _build_llm_client():
                         allow_empty=False,
                     )
                     if salvage is not None:
-                        payload, kept, cut, empty = salvage
+                        payload, kept, cut, empty, dropped = salvage
                         logger.warning(
                             "graphiti LLM response [salvaged-defect]: model=%s "
-                            "kept_elements=%d cut_bytes=%d body_bytes=%d",
+                            "kept_elements=%d dropped_early=%d cut_bytes=%d "
+                            "body_bytes=%d",
                             getattr(response_model, "__name__", response_model),
                             kept,
+                            dropped,
                             cut,
                             len(result),
                         )

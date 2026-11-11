@@ -494,6 +494,61 @@ anywhere — every worse number in run 2 traces to the chunk-6 skip, and the que
 are unchanged). Adopt the edge-description text into the default ontology only together with
 the early-defect salvage, so the metric can be banked. **Not a confirmed result on its own.**
 
+## 5.5 The fifth quality arm — drop-corrupt-early-elements — **MEASURED 2026-11-11: entity recall 7/7, the last hole in the skip guard closed; banked together with §5.4 in §5.6**
+
+**What changed (one variable, code):** the salvage, when no from-element-0 rebuild parses,
+retries from later element boundaries and **drops only the corrupt early elements**
+(`dropped_early` is reported in the payload and the log line so no run can hide the loss).
+This is the edgedesc repeat's chunk-6 class: the model dropped a key
+(``{"id": 0, "name": "2023至2025年", -1}``) and every rebuild that starts at the first
+element inherits that corruption. 3 new tests; suite **434 passed**, compileall clean; code
+`b00a2cf` on `key-repair-arm`.
+
+**Provenance:** runs `keyrepair_1794380298` (this arm, **baseline ontology** — the harness
+default was restored after §5.4 per trap 1, so this run measures the code alone) and
+`kredge_1794381675` (the combined run: this code **plus** the §5.4 sharpened descriptions,
+installed for the run and preserved at `scratch/ontology_edgedesc_under_test.json`). Both on
+gold v1.6; model from the backend log `mlx LFM3-1.7B-MLX-8bit … max_tokens=4096`; 8 ok / 0
+skipped in both; walls 938.4 s / 860.6 s; 145 / 118 calls.
+
+| gold metric (v1.6) | control | arm 3 `defect_*` | **arm 5 `keyrepair_*`** | **combined `kredge_1794381675`** |
+|---|---:|---:|---:|---:|
+| **entity recall** | 2/7 = 0.286 | 7/7 | **7/7** | **7/7** |
+| chunks ok / skipped | 6 / 2 | 8 / 0 | **8 / 0** | **8 / 0** |
+| **gold edge recall** | 0/5 | 0/5 | 0/5 (baseline ontology) | **12 matched = 2.4× — all 5 gold edges, 0 wrong-relation, 0 direction errors** |
+| edge precision (unadj.) | 0 | 0 | 0 | **0.136 — best of any arm** |
+| off-ontology relation rate | 1.00 | 1.00 | 1.00 | **0.852** |
+| precision (entities, unadj.) | 0.061 | 0.072 | 0.072 | **0.097 — best of any arm** |
+| junk + unknown (adjudicated) | 0.94 | 0.86 | 0.82 | 0.88 |
+| text-derived `valid_at` | 0 | 0 | 0 | **1** |
+| calls per gold entity | 46.0 | 26.3 | 20.7 | **16.9** |
+| calls per gold edge | — | — | — | **23.6** |
+
+**Findings:**
+
+1. **The skip guard is fully closed.** The edgedesc repeat's chunk-6 class (a dropped key in
+   the first element) no longer skips: arm 5 lands 8/8 with the corrupt element dropped and
+   the rest kept. Entity recall has now been 7/7 in every run of the merged+arm-5 code.
+2. **Both levers are needed to bank the edges, and the combined run proves it.** Arm 5 on
+   the baseline ontology scores 0/5 edges and off-ontology rate 1.00 — exactly the control's
+   behaviour; the §5.4 descriptions on a chunk-skipping run score 5/5 then 0/5. The combined
+   run matches **all 5 gold edges with 0 wrong-relation and 0 direction errors**, the best
+   entity precision (0.097), the best cost per correct entity (16.9), and one text-derived
+   date. One caveat recorded, not hidden: the model **over-expresses** `REPORTS_ON` (13 edges
+   for 5 gold pairs, with duplicates) — the recall figure is 2.4× because duplicates match
+   the same gold edge; dedupe is the remaining edge-side imperfection.
+3. **Cost per correct entity has fallen 2.7×** from the control (46.0 → 16.9) while recall
+   went 2/7 → 7/7 — the two arms together turned the quality curve around, not one metric at
+   the expense of another.
+
+**Queue adjudication (both runs, by hand — §2.8):** arm 5: 15 items (10 junk-by-rule folded
+in v1.6; `媒体 outlet` rejected by the grounding gate — it occurs nowhere in the slice — and
+the four standing unmatchables recorded). Combined run: 5 items, all standing unmatchable
+(`政府部门或监管机构`, `政府监管机构`, `媒体机构`, `二次舆情爆发的催化剂`, `Nisha's dad`).
+**Verdict: adopt both** — the merge of `key-repair-arm` plus the sharpened descriptions in
+the default ontology is the recommendation; the over-expression duplicate is the next
+quality item if the owner wants it.
+
 ## 6. Independent second annotation
 
 `--agree` computes the inter-annotator agreement between this gold and a second,
@@ -621,4 +676,5 @@ against it.
 
 | 1.3 | 2026-11-11 | **+24** grounded junk entries from the salvage arm's queue adjudication (`J166`-`J189`: 11 `abstract-concept`, 6 `metric`, 2 `role-class`, 2 `public-perception`, 1 `generic-mass`, 1 `content-artifact`, 1 `content-format`, 1 `out-of-ontology-type` — `图书馆`); **0** tier changes; `--check` green; a scorer robustness fix in `scratch/gold_score.py` (attribute-support lookup by the matched node's own name, not the gold's — a match on an alias surface form crashed it) | **Adjudication of the second quality arm's review queue (salvage, §5.2).** Same rule as v1.2: every addition is rule-justified and re-grounded; six ruled items were **not added** because their surface forms occur nowhere in the slice (`Dr. Osei` / `Nisha` — named persons the slice never contains; `政府监管` — the v1.0.1 precedent; `武汉大学品牌声量与影响力分析` / `AAN` / `政府机构` — ungroundable concatenations or absent terms). §5.2 reports both the as-scored (46 junk + 30 unknown) and as-adjudicated (70 junk + 6 unknown) reads. |
 | 1.4 | 2026-11-11 | **+12** grounded junk entries from the defect arm's queue adjudication (`J193`-`J204` minus the checker's rejects: dates `2023`/`2025`/`本监测周期`, abstract themes `程序正义`/`治理现代化`/`信息透明度`/`对话机制`, role-class `媒体报道`, event-class `负面事件`/`正面热点`/`二次舆情反弹`, pattern `W型情感演变轨迹` once re-attributed, classification `985高校`, perception `正向情感`); **0** tier changes; **0** gold/borderline/edge changes; `--check` green; the confirmation repeat's and this arm's queue reports both recorded | **Adjudication of the third quality arm's review queue (defect salvage, §5.3).** Thirteen ruled items were **not added** — the `--check` grounding gate rejected nine (`微信`, `珑珈裂痕`, `社会媒体`, `媒体Outlet`, `透明共治`, `二次舆情爆发的催化剂`, `5起+重大舆情事件`, `舆情监测`, `声誉危机`, `W型情感演变轨迹` — the model's paraphrases occurring nowhere in the slice) and four are the hallucinated-person/known-precedent names (`Dr. Osei`, `Nisha's dad`, `Osei's colleague`, `政府监管`). Recorded for the audit trail: `微信` is a real platform but never appears in this slice, so it is not a gold `MediaOutlet` **here** — the gold annotates this slice, not the world. |
+| 1.6 | 2026-11-11 | **+10** grounded junk entries from the key-repair arm's review queue (`J219`-`J228` minus the checker's rejects: metrics `190%`/`5起`/`同类事件均值10.8%`/`声量洪峰`/`2023年9月`/`阅读量`, abstract themes `图书馆事件影响力`/`过去`, event-class `图书馆诬告案宣判` re-attributed to the chunk the checker proved (5), rhetoric `前所未有地放大`); **0** tier/gold/borderline/edge changes; `--check` green; the combined run's queue (5 standing unmatchables) recorded | **Adjudication of the fifth quality arm's review queue (§5.5).** The grounding gate rejected `媒体 outlet` (it occurs nowhere in the slice — the earlier control-run queue item) and the four standing unmatchables stay out of the gold (`政府部门或监管机构`, `政府监管机构`, `媒体机构`, `二次舆情爆发的催化剂`, `Nisha's dad`). |
 | 1.5 | 2026-11-11 | **+13** grounded junk entries from the edge-description arm's two review queues (`J205`-`J225` minus rejects: run 1 — `五年同期`, `重大舆情事件`, `声誉`; run 2 — `舆情生命周期`, `高强度讨论`, `行政逻辑`, `群体撕裂`, `群体`, `第三方检测`, `热搜包`, `图文并茂、模板化传播`, `五起重大舆情事件频次` re-attributed, `6.4%正向情感谷底值`, `视频类声量`); **0** tier/gold/borderline/edge changes; `--check` green after two attribution fixes and two drops | **Adjudication of the fourth quality arm's review queues (§5.4), both runs.** The grounding gate rejected five paraphrases (`高校治理现代化危机`, `五起重大舆情事件频次`, `媒体机构`, `政府监管机构`, and the `5起+重大舆情事件` variant); `本校` was ruled **not junk** — it is E01's coreference, an over-split signal that belongs to the split metric, not the junk list. The record keeps the standing hallucination set (`政府监管`, `Dr. Osei` and colleagues) out of the gold. |
