@@ -992,27 +992,53 @@ def _normalize_to_schema(payload, response_model, messages):
     return normalized if changed else payload
 
 
-def _salvage_truncated_json(text: str, allow_empty: bool = False):
-    """Bounded salvage of a clamp-truncated extraction body (HANDOFF §9 G.1 arm 2).
+def _try_salvage_rebuild(text: str, start: int, cut: int):
+    """Rebuild ``text[start:cut]`` as a closed single-array payload, or None.
 
-    A 1.7B edge response regularly dies at the M1 clamp mid-payload
-    (``finish_reason="length"`` — e.g. ``Unterminated string ... char 10037`` on
-    chunk 6 of the frozen slice). Today that single failed call discards the
-    whole chunk, even though the entity and resolution calls already succeeded.
-    This recovers the longest prefix of COMPLETE elements in the response's
-    first array value and re-closes the containers, so the chunk keeps what the
-    model actually finished.
+    A candidate is accepted only when the rebuilt string actually parses and
+    the lone top-level key maps to a list of objects — the scanner alone can be
+    fooled by a defect body whose quotes balance out later, so every cut is
+    validated by parsing, not by structure."""
+    try:
+        payload = json.loads(text[start:cut] + "]}")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or len(payload) != 1:
+        return None
+    (key, value), = payload.items()
+    if not isinstance(value, list) or not value:
+        return None
+    if not all(isinstance(e, dict) for e in value):
+        return None
+    return (payload, len(value), cut)
+
+
+def _salvage_truncated_json(text: str, allow_empty: bool = False):
+    """Bounded salvage of an unparseable extraction body (HANDOFF §9 G.1 arms 2+3).
+
+    A 1.7B response regularly dies mid-payload — at the M1 clamp
+    (``finish_reason="length"`` — chunk 6 of the frozen slice, cut at char 10037
+    after 367 lines of COMPLETE edge objects) or as a generation defect
+    (``finish_reason="stop"`` — an unescaped quote inside a value, e.g. the
+    confirmation repeat's chunk 6 at char 1863). Either way the pre-arm seam lost
+    the whole chunk even though the calls before it had succeeded. This recovers
+    the longest prefix of COMPLETE elements the response carries, so the chunk
+    keeps what the model actually finished.
 
     Contract (deliberately conservative — this function never invents content):
     * it only rebuilds the single-array shape every extraction response model
-      uses (``{"<key>": [<elements>]}\``); a body whose first array lives under a
-      second key, or which has no root object/array at all, returns ``None``;
-    * a complete body returns its own elements unchanged;
+      uses (``{"<key>": [<elements>]}\``); a body with no root object, no array
+      value, or a second top-level array, recovers nothing;
+    * every candidate cut is validated by PARSING, because a defect body's later
+      text can balance out and fool a pure structural scan;
     * a truncated body with >=1 complete element returns that prefix;
-    * a truncated body with 0 complete elements returns an empty list ONLY when
-      the caller passes ``allow_empty`` (i.e. the clamp is certified by
-      ``finish_reason``) — the chunk then keeps its entities and loses only the
-      call that was garbage anyway.
+    * a body with no complete element returns an empty list ONLY when the caller
+      passes ``allow_empty`` (i.e. the clamp is certified by ``finish_reason``) —
+      the chunk then keeps its entities and loses only the call that was garbage
+      anyway;
+    * a defect body (``finish_reason="stop"``) with no complete element returns
+      ``None`` — the caller's retry path is preserved for genuinely transient
+      defects.
 
     Returns ``(payload, kept_elements, cut_index, empty)`` or ``None``.
     """
@@ -1023,7 +1049,7 @@ def _salvage_truncated_json(text: str, allow_empty: bool = False):
         return None
     key_match = None
     array_open = -1
-    last_close = -1
+    best = None  # (payload, kept, cut) — the longest prefix that parsed
     depth = 0
     in_string = False
     escape = False
@@ -1038,8 +1064,10 @@ def _salvage_truncated_json(text: str, allow_empty: bool = False):
                 escape = True
             elif ch == '"':
                 in_string = False
-                if depth == 2 and i + 1 > last_close:
-                    last_close = i + 1  # a scalar element just closed
+                if depth == 2:
+                    candidate = _try_salvage_rebuild(text, start, i + 1)
+                    if candidate is not None:
+                        best = candidate  # a scalar-string element ended
             i += 1
             continue
         if ch == '"':
@@ -1048,40 +1076,33 @@ def _salvage_truncated_json(text: str, allow_empty: bool = False):
             depth += 1
             if depth == 2 and ch == "[":
                 if array_open >= 0:
-                    return None  # a second array value: not our shape
+                    break  # a second top-level array: not our shape, stop here
                 array_open = i
                 key_match = re.match(r'\s*\{\s*"([^"]+)"\s*:\s*$', text[start:array_open])
                 if key_match is None:
                     return None
         elif ch in "}]":
             if depth == 3 and ch == "}":
-                # an object element closes; its parent is the array (depth 2)
-                if i + 1 > last_close:
-                    last_close = i + 1
-            # NB: the array's own ']' is NOT a cut point — the rebuild appends
-            # ']}', so recording past the ']' would double-close it.
+                candidate = _try_salvage_rebuild(text, start, i + 1)
+                if candidate is not None:
+                    best = candidate
+            elif depth == 2 and ch == "]":
+                candidate = _try_salvage_rebuild(text, start, i + 1)
+                if candidate is not None:
+                    best = candidate
             depth -= 1
             if depth == 0:
                 break  # the root object closed: body was complete
             if depth < 0:
-                return None
+                break
         i += 1
     if array_open < 0 or key_match is None:
         return None
-    key = key_match.group(1)
-    if last_close < 0:
-        if not allow_empty:
-            return None
-        return ({key: []}, 0, start, True)
-    rebuilt = text[start:last_close] + "]}"
-    try:
-        payload = json.loads(rebuilt)
-    except json.JSONDecodeError:
+    if best is not None:
+        return (best[0], best[1], best[2], False)
+    if not allow_empty:
         return None
-    value = payload.get(key)
-    if not isinstance(value, list) or not all(isinstance(e, dict) for e in value):
-        return None
-    return (payload, len(value), last_close, False)
+    return ({key_match.group(1): []}, 0, start, True)
 
 
 def _build_llm_client():
@@ -1251,6 +1272,39 @@ def _build_llm_client():
                     raise _TruncatedJSONError(
                         f"truncated/unparseable JSON response (not retried): {exc}"
                     ) from exc
+                if finish_reason == "stop":
+                    # §9 G.1 arm 3: a generation defect keeps its complete
+                    # elements too. The confirmation repeat showed this class is
+                    # stable across retries (the recorded-body suite pins the
+                    # mode), so five retries of a deterministic defect are pure
+                    # waste: salvage after one call and land the chunk. A body
+                    # with nothing recoverable still propagates
+                    # ``json.JSONDecodeError`` -- the retry path is preserved.
+                    salvage = _salvage_truncated_json(
+                        self._strip_code_fences(result),
+                        allow_empty=False,
+                    )
+                    if salvage is not None:
+                        payload, kept, cut, empty = salvage
+                        logger.warning(
+                            "graphiti LLM response [salvaged-defect]: model=%s "
+                            "kept_elements=%d cut_bytes=%d body_bytes=%d",
+                            getattr(response_model, "__name__", response_model),
+                            kept,
+                            cut,
+                            len(result),
+                        )
+                        if _looks_like_schema_echo(payload, response_model):
+                            raise _SchemaEchoError(
+                                f"schema echo: model returned the JSON Schema for "
+                                f"{getattr(response_model, '__name__', response_model)} "
+                                f"inside a defect body (not retried)"
+                            )
+                        return _normalize_to_schema(
+                            payload,
+                            response_model,
+                            messages,
+                        )
                 raise
             except Exception as e:
                 logger.error(f"Error in generating LLM response: {e}")

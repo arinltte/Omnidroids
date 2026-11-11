@@ -168,13 +168,23 @@ def test_reasoning_leak_body_salvages_empty_under_the_clamp():
     [
         "not json at all",
         '{"summary": "a truncated scalar with no array value',
-        '{"first": [{"x": 1}], "second": [{"y": 2',  # two top-level arrays
         "",  # empty body
     ],
 )
 def test_unsalvageable_shapes_return_none(body):
     """The function must stay conservative: it never guesses content."""
     assert graphiti_zep._salvage_truncated_json(body, allow_empty=True) is None
+
+
+def test_a_second_top_level_array_recovers_the_first():
+    """A body with a second array key is not the extraction shape — but the
+    first array's COMPLETE elements are still recoverable, so the salvage keeps
+    them instead of returning nothing."""
+    body = '{"first": [{"x": 1}], "second": [{"y": 2'
+    result = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
+    assert result is not None
+    payload, kept, cut, empty = result
+    assert payload == {"first": [{"x": 1}]} and kept == 1 and empty is False
 
 
 def test_trailing_garbage_after_a_complete_body_is_dropped():
@@ -238,12 +248,52 @@ def test_unsalvageable_truncation_still_fails_fast(monkeypatch):
         _generate(client, _prompts(), ExtractedEdges)
 
 
-def test_generation_defect_stop_finished_is_not_salvaged(monkeypatch):
-    """A broken body with ``finish_reason=stop`` is a generation defect, not a
-    truncation: the existing retry path is unchanged."""
+def test_stop_finished_defect_salvages_its_prefix(monkeypatch):
+    """§9 G.1 arm 3: a ``stop``-finished defect also keeps its complete elements.
+
+    Chunk 6 of the confirmation repeat died on this class (``Expecting ','
+    delimiter ... char 1863``, five wasted retries on the same defect shape -- the
+    recorded-body suite shows the mode is stable across repeats). Keeping the two
+    complete entities lands the chunk after ONE call instead of six."""
     client = _seam_client(monkeypatch)
-    body = _CHUNK_6_BODY  # broken, but the server says the generation finished
+    body = (
+        '{"extracted_entities": ['
+        '{"name": "武汉大学", "entity_type_id": 8}, '
+        '{"name": "甲醛事件在线协同维权", "entity_type_id": 7}, '
+        '{"name": "平台的"冲突加权"机制", "entity_type_id": 0}]}'
+    )
     _calls, transport = _fake_transport(body, finish_reason="stop")
+    client.client = transport
+
+    result = _generate(client, _prompts(), ExtractedEntities)
+
+    assert result == {
+        "extracted_entities": [
+            {"name": "武汉大学", "entity_type_id": 8},
+            {"name": "甲醛事件在线协同维权", "entity_type_id": 7},
+        ]
+    }
+
+
+def test_stop_finished_defect_with_no_array_is_not_salvaged(monkeypatch):
+    """The retry path is preserved where salvage has nothing to recover.
+
+    A defect body with no array value still propagates ``json.JSONDecodeError``
+    so graphiti's tenacity chain can retry it -- the pre-arm contract, unchanged."""
+    client = _seam_client(monkeypatch)
+    body = '{"extracted_entities": "not a list, just defect'
+    _calls, transport = _fake_transport(body, finish_reason="stop")
+    client.client = transport
+
+    with pytest.raises(json.JSONDecodeError):
+        _generate(client, _prompts(), ExtractedEntities)
+
+
+def test_other_finish_reasons_are_outside_the_salvage(monkeypatch):
+    """Only None/length/stop are salvaged; an unknown finish_reason keeps the
+    pre-arm behaviour (propagate, let the retry chain own it)."""
+    client = _seam_client(monkeypatch)
+    _calls, transport = _fake_transport(_CHUNK_6_BODY, finish_reason="content_filter")
     client.client = transport
 
     with pytest.raises(json.JSONDecodeError):

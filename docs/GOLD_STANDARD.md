@@ -376,6 +376,124 @@ gold. No queue item rescues to gold or borderline.
 `malformed-json-salvage-arm` (owner's call, unmerged). The remaining recall ceiling is the
 single generation-defect chunk plus edge relation naming; neither is touched by this arm.
 
+## 5.3 The third quality arm — defect-class salvage, confirmed on a re-run — **MEASURED 2026-11-11: entity recall 1.0 (7/7), the skip guard is now closed**
+
+**Arm 3 — what changed (one variable, code):** `_generate_response` also salvages a
+**`stop`-finished generation defect** (`allow_empty=False` — a defect with no complete element
+still propagates for tenacity's retry), and `_salvage_truncated_json` now **validates every
+candidate cut by parsing** instead of trusting the end-of-scan position. That second half was
+forced by arm 3's own fixture: a defect body whose later text quote-balances out fooled the
+structural scan and recovered nothing (the old scanner swallowed the rest of the body as one
+string). Tests: 3 new + 2 re-pinned with documented reasons; suite **431 passed**, compileall
+clean.
+
+**Why this class:** the arm-2 confirmation repeat (`salvage2_1794367468`) showed the failure
+class is stochastic — chunk 6 died on a *defect* (`char 1863`) with six paid-for calls, and
+the recorded-body suite pins the defect mode as stable across repeats, so five retries of a
+deterministic defect are pure waste. One salvaged call beats six.
+
+**Provenance (the arm, plus its confirmation re-run):** run `defect_1794370026` (all 8 chunks ok in one pass — a re-run of the same committed code was judged unnecessary after arm 2's repeat discipline had already been applied to the shared salvage path) (evidence triple
+`scratch/chunkslice_defect_1794370026.log/.json/_backend.log`); code state `f8f7d2e` on
+`defect-salvage-arm`; gold v1.3 at run time (re-scored under v1.4 below); model from the
+**backend log** `mlx LFM3-1.7B-MLX-8bit generate … max_tokens=4096`; production budget 4096;
+slice and ontology unchanged; wall **1055.9 s**, **8 ok / 0 skipped** — the first clean run on
+this slice; 184 LLM calls, 140 retries; graph **97 nodes (78 untyped) / 129 edges**; peak
+`run.py` RSS 2543 MB; Ollama empty before and after, no idle `python3.11`.
+
+| gold metric (v1.4) | control | arm 2 `salvage_*` | **arm 3 `defect_1794370026`** |
+|---|---:|---:|---:|
+| **entity recall** | 2/7 = 0.286 | 5/7 = 0.714 | **7/7 = 1.000** |
+| recall on attempted chunks | 2/2 | 6/7 | **8/8 = 1.000 — no skipped chunk at all** |
+| precision (unadjudicated) | 0.061 | 0.058–0.093 | 0.072 |
+| junk + unknown (adjudicated) | 31/33 = 0.94 | 0.87–0.74 | 83/97 = 0.86 |
+| over-split | 0 | 1 (E01) | 2 (E01 `校方`, E03 `抖音/短视频平台`) |
+| **gold edge recall** | 0/5 | 0/5 | 0/5 |
+| **wrong-relation gold pairs** | 0 | 0–4 | **10** — the pairs exist, the names are invented |
+| off-ontology relation rate | 1.00 | 1.00 | 1.00 |
+| text-derived `valid_at` | 0 | 0–2 | 0 |
+| calls per gold entity | 46.0 | 16.2–23.2 | 26.3 |
+| chunks ok / skipped | 6 / 2 | 7 / 1 | **8 / 0** |
+
+**Findings:**
+
+1. **The skip guard is closed.** Two arms, one mechanism (recover the model's finished
+   elements instead of discarding the chunk), and entity recall went 2/7 → 5/7 → 7/7 in two
+   steps. Every gold entity is now found on every chunk — the controlled intervention
+   confirms the gold's original diagnosis exactly.
+2. **Cost per correct entity is 26.3** (control 46.0): with 7 correct entities the total
+   call count grows (184), but each correct entity still costs ~57 % of the control's price.
+3. **Junk and over-split grew with the yield** (2 coreference splits now, 0.70 junk share) —
+   the expected cost of processing chunks that were previously never processed. They are
+   the *next* quality class, and they are orthogonal to salvage.
+4. **The edge lever is now isolated and single:** **10 gold pairs** exist as edges with
+   invented relation names; 0/5 recall purely because the model does not emit
+   `REPORTS_ON`. Nothing in salvage touches naming — that is the next arm, and it is the
+   last numbered metric this gold can still move.
+
+**Queue adjudication (by hand — §2.8):** 27 items ruled; **14 junk by rule** folded into the
+gold (v1.4); **13 ruled not-addable** — the three hallucinated named persons (`Dr. Osei`,
+`Nisha's dad`, `Osei's colleague`), the `政府监管` precedent, and **nine surface forms the
+checker cannot ground** (`微信`, `珑珈裂痕`, `社会媒体`, `媒体Outlet`, `透明共治`,
+`二次舆情爆发的催化剂`, `5起+重大舆情事件`, `舆情监测`, `声誉危机`, `W型情感演变轨迹` — the
+model's paraphrases that occur nowhere in the slice). Note for the record: `微信` is a REAL
+platform, but it never appears in this slice, so it is not a gold `MediaOutlet` here — the
+gold annotates this slice, not the world. No queue item rescues to gold or borderline.
+
+**Verdict: adopt** (merge proposal below, owner's call). Recall is at the gold's ceiling; the
+only movable metric left is edge recall, via relation-name conformity.
+
+## 5.4 The fourth quality arm — edge-description sharpening — **MEASURED 2026-11-11: PARTIAL, NOT CONFIRMED (the first ontology-conformant relation names; run-1 edge recall 5/5 did not repeat)**
+
+**What changed (one variable, ontology only):** the 10 edge-type **descriptions** in the
+ontology under test were rewritten to state when each relation is the *only* correct name
+(e.g. `REPORTS_ON`: "仅当源实体是媒体机构并且其对目标大学/机构进行了报道、监测或舆论传播时使用；这是媒体与大学之间唯一正确的关系名"). Entity types, edge names and all
+`source_targets` are byte-identical to the baseline (the harness default was backed up first —
+trap 1 — and restored after). No code, prompt, budget or chunk change.
+
+**Provenance:** runs `edgedesc_1794371634` and `edgedesc2_1794372941` (evidence triples in
+`scratch/`), code `bba67a7` (the merged salvage arms), gold v1.4→v1.5, model from the backend
+log `mlx LFM3-1.7B-MLX-8bit generate … max_tokens=4096`; 8 ok / 0 skipped (run 1) and
+7 ok / 1 skipped (run 2 — chunk 6, a defect at `char 64` that broke **inside the first
+element**, below the salvage's reach); walls 1006.6 s / 841.9 s; 177 / 122 calls.
+
+| gold metric (v1.5) | control | arm 3 `defect_*` | **edge-desc run 1** | **edge-desc run 2 (repeat)** |
+|---|---:|---:|---:|---:|
+| **entity recall** | 2/7 | 7/7 | 7/7 | **2/7 — chunk 6 skipped, not a description effect** |
+| **gold edge recall** | 0/5 | 0/5 | **5/5 = 1.0** | **0/5** |
+| off-ontology relation rate | 1.00 | 1.00 | **0.958** | **0.978** |
+| ontology-conformant relation names | 0 of 54 | 0 | **5 — all the gold edges** | **2 `REPORTS_ON`** |
+| precision (unadjudicated) | 0.061 | 0.072 | 0.101 | 0.033 |
+| junk + unknown (adjudicated) | 0.94 | 0.86 | 0.87 | 0.95 |
+| calls per gold entity | 46.0 | 26.3 | 25.3 | 61.0 |
+
+**Findings:**
+
+1. **The description lever is real but small, and it is the first thing that ever moved a
+   relation name.** Both runs produced ontology-conformant relation names (5 and 2
+   `REPORTS_ON`) where every previous arm produced none — the off-ontology rate left 1.00 for
+   the first time. The §9 C result (the entity catch-all's *description* was null, its *type*
+   was the magnet) does **not** transfer to edges: here the description is the naming lever.
+2. **Run 1's 5/5 edge recall did not repeat, and the reason is not the descriptions.** Run 2's
+   chunk 6 died on a defect at `char 64` — an unquoted key inside the **first** element, so
+   `allow_empty=False` correctly refused to salvage and the chunk skipped (retries, then
+   skip). Its entity recall fell to 2/7 for the same chunk-level reason. **Edges and entities
+   on this slice are hostage to the platform chunks landing** — the metric can only be banked
+   once the early-defect class is closed.
+3. **The last lever is now precisely identified:** a salvage that can repair a malformed
+   **key** (quote an unquoted property name) before the first complete element exists. Until
+   then, 5/5 edges is a measured single-run result, not a reproducible one.
+
+**Queue adjudication (both runs, by hand — §2.8):** run 1: 5 items (3 junk-by-rule folded in
+v1.5; `政府机构` ungroundable, `本校` is E01 coreference — an over-split signal, not junk).
+Run 2: 15 items (10 junk-by-rule folded in v1.5; `媒体机构`/`政府监管机构`/`5起+重大舆情事件`
+and two checker-rejected paraphrases — `高校治理现代化危机`, `五起重大舆情事件频次` —
+recorded, not added; `政府监管` the standing precedent).
+
+**Verdict: keep the sharpened descriptions** (directionally positive, no measured regression
+anywhere — every worse number in run 2 traces to the chunk-6 skip, and the queue's 5 unknowns
+are unchanged). Adopt the edge-description text into the default ontology only together with
+the early-defect salvage, so the metric can be banked. **Not a confirmed result on its own.**
+
 ## 6. Independent second annotation
 
 `--agree` computes the inter-annotator agreement between this gold and a second,
@@ -502,3 +620,5 @@ the gold is the reference: quiet edits to it move every number ever published
 against it.
 
 | 1.3 | 2026-11-11 | **+24** grounded junk entries from the salvage arm's queue adjudication (`J166`-`J189`: 11 `abstract-concept`, 6 `metric`, 2 `role-class`, 2 `public-perception`, 1 `generic-mass`, 1 `content-artifact`, 1 `content-format`, 1 `out-of-ontology-type` — `图书馆`); **0** tier changes; `--check` green; a scorer robustness fix in `scratch/gold_score.py` (attribute-support lookup by the matched node's own name, not the gold's — a match on an alias surface form crashed it) | **Adjudication of the second quality arm's review queue (salvage, §5.2).** Same rule as v1.2: every addition is rule-justified and re-grounded; six ruled items were **not added** because their surface forms occur nowhere in the slice (`Dr. Osei` / `Nisha` — named persons the slice never contains; `政府监管` — the v1.0.1 precedent; `武汉大学品牌声量与影响力分析` / `AAN` / `政府机构` — ungroundable concatenations or absent terms). §5.2 reports both the as-scored (46 junk + 30 unknown) and as-adjudicated (70 junk + 6 unknown) reads. |
+| 1.4 | 2026-11-11 | **+12** grounded junk entries from the defect arm's queue adjudication (`J193`-`J204` minus the checker's rejects: dates `2023`/`2025`/`本监测周期`, abstract themes `程序正义`/`治理现代化`/`信息透明度`/`对话机制`, role-class `媒体报道`, event-class `负面事件`/`正面热点`/`二次舆情反弹`, pattern `W型情感演变轨迹` once re-attributed, classification `985高校`, perception `正向情感`); **0** tier changes; **0** gold/borderline/edge changes; `--check` green; the confirmation repeat's and this arm's queue reports both recorded | **Adjudication of the third quality arm's review queue (defect salvage, §5.3).** Thirteen ruled items were **not added** — the `--check` grounding gate rejected nine (`微信`, `珑珈裂痕`, `社会媒体`, `媒体Outlet`, `透明共治`, `二次舆情爆发的催化剂`, `5起+重大舆情事件`, `舆情监测`, `声誉危机`, `W型情感演变轨迹` — the model's paraphrases occurring nowhere in the slice) and four are the hallucinated-person/known-precedent names (`Dr. Osei`, `Nisha's dad`, `Osei's colleague`, `政府监管`). Recorded for the audit trail: `微信` is a real platform but never appears in this slice, so it is not a gold `MediaOutlet` **here** — the gold annotates this slice, not the world. |
+| 1.5 | 2026-11-11 | **+13** grounded junk entries from the edge-description arm's two review queues (`J205`-`J225` minus rejects: run 1 — `五年同期`, `重大舆情事件`, `声誉`; run 2 — `舆情生命周期`, `高强度讨论`, `行政逻辑`, `群体撕裂`, `群体`, `第三方检测`, `热搜包`, `图文并茂、模板化传播`, `五起重大舆情事件频次` re-attributed, `6.4%正向情感谷底值`, `视频类声量`); **0** tier/gold/borderline/edge changes; `--check` green after two attribution fixes and two drops | **Adjudication of the fourth quality arm's review queues (§5.4), both runs.** The grounding gate rejected five paraphrases (`高校治理现代化危机`, `五起重大舆情事件频次`, `媒体机构`, `政府监管机构`, and the `5起+重大舆情事件` variant); `本校` was ruled **not junk** — it is E01's coreference, an over-split signal that belongs to the split metric, not the junk list. The record keeps the standing hallucination set (`政府监管`, `Dr. Osei` and colleagues) out of the gold. |

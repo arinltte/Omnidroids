@@ -530,24 +530,33 @@ def test_recorded_bodies_the_alias_net_cannot_resolve_stay_unchanged(
 # ---------------------------------------------------------------------------
 
 
-def test_a_persisted_prefix_that_ends_mid_value_is_not_a_truncation(monkeypatch):
-    """The seam classifies by ``finish_reason``, so a cut body is not a truncation.
+def test_a_persisted_stop_prefix_salvages_its_complete_elements(monkeypatch):
+    """§9 G.1 arm 3 re-pins this contract: a ``stop``-finished body that carries
+    complete elements is salvaged, not propagated.
 
-    This is the measurement reason the fixture needs ``intact`` + ``closing``:
+    This was the measurement reason the fixture needs ``intact`` + ``closing``:
     the harness bound meant every persisted body ends mid-value, and the
-    ``finish_reason=stop`` ones would otherwise only ever exercise the parse
-    path. Here the persisted text of one recorded call is fed through as
-    persisted — it fails to parse, and because the response said ``stop`` the
-    seam refuses to call that a truncation: the JSONDecodeError propagates for
-    graphiti's tenacity wrapper to retry, exactly as it must for a generation
-    defect."""
-
+    ``stop`` ones would otherwise only ever exercise the parse path. Under the
+    pre-arm-3 contract the persisted text failed to parse and the JSONDecodeError
+    propagated for tenacity to retry. The defect class turned out to be stable
+    across retries (the mode does not vary), so arm 3 keeps the complete prefix
+    after one call instead. For THIS record (the ``entity`` key the alias net
+    cannot resolve) the salvaged payload comes back unchanged and graphiti's
+    validation still rejects it — the chunk skips on the wrong-keys class rather
+    than malformed-json, which is the honest label for what the model returned."""
     record = next(r for r in RECORDED_BODIES if r.finish_reason == "stop")
     client, _calls = _client(
         record.body, finish_reason=record.finish_reason, monkeypatch=monkeypatch
     )
 
-    with pytest.raises(json.JSONDecodeError) as raised:
-        _generate(client, _nodes_prompt(), ExtractedEntities)
+    result = _generate(client, _nodes_prompt(), ExtractedEntities)
 
-    assert not isinstance(raised.value, _TruncatedJSONError)
+    # the top-level alias is renamed; the element's "entity" key is NOT an
+    # alias, so it rides through unchanged — and graphiti's validation still
+    # owns the skip (wrong-keys, not malformed-json)
+    assert list(result) == ["extracted_entities"]
+    assert result["extracted_entities"] == [
+        {"entity_type_id": 1, "entity_type_name": "Person", "entity": "Dr. Chen"}
+    ]
+    with pytest.raises(Exception):
+        ExtractedEntities(**result)
