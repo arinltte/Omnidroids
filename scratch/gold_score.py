@@ -289,7 +289,11 @@ def score(gold: dict, hypothesis: dict, policy: str, run: dict | None,
         source = next((r for r in type_checked if r["gold_id"] == entry["id"]), None)
         if source is None:
             continue
-        hypothesis_node = node_by_name.get(norm(entry["name"]))
+        # look the node up by the name IT carries, not the gold's — a match
+        # can land on an alias/match_key surface form
+        hypothesis_node = node_by_name.get(norm(source["name"]))
+        if hypothesis_node is None:
+            continue
         blob = norm(" ".join(filter(None, [
             hypothesis_node.get("name"), hypothesis_node.get("summary"),
             hypothesis_node.get("attributes_raw")])))

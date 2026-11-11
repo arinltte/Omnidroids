@@ -766,17 +766,22 @@ def test_element_requirements_added_when_graphiti_already_appended_its_block(
 # ---------------------------------------------------------------------------
 
 
-def test_truncated_body_is_terminal_and_not_retried(monkeypatch):
+def test_truncated_body_salvages_empty_instead_of_losing_the_chunk(monkeypatch):
+    """§9 G.1 arm 2: a clamped body with no complete element salvages ``[]``.
+
+    The clamp cut inside the FIRST element, so nothing completes; the entity
+    call then answers with an empty list instead of raising, which keeps the
+    chunk (its edges call may still succeed) instead of skipping it. A body with
+    no array at all still fails fast terminal — see
+    ``test_a_truncation_with_no_complete_element_is_still_terminal``."""
+
     client, _calls = _client(
         '{"extracted_entities": [{"name": "Dr.', finish_reason="length", monkeypatch=monkeypatch
     )
 
-    with pytest.raises(_TruncatedJSONError) as raised:
-        _generate(client, _nodes_prompt(), ExtractedEntities, 2048)
-
-    assert str(raised.value).startswith(_TERMINAL_PREFIX)
-    # outside tenacity's retried set (client.py:is_server_or_retry_error)
-    assert not isinstance(raised.value, json.JSONDecodeError)
+    result = _generate(client, _nodes_prompt(), ExtractedEntities, 2048)
+    assert result == {"extracted_entities": []}
+    ExtractedEntities(**result)
 
 
 def test_malformed_body_with_stop_finish_reason_propagates(monkeypatch):
@@ -792,17 +797,17 @@ def test_malformed_body_with_stop_finish_reason_propagates(monkeypatch):
     assert not isinstance(raised.value, _TruncatedJSONError)
 
 
-def test_malformed_body_without_finish_reason_stays_terminal(monkeypatch):
-    # A transport that omits finish_reason leaves nothing to reason with, so
-    # M3's conservative fail-fast still applies.
+def test_malformed_body_without_finish_reason_salvages_like_a_clamp(monkeypatch):
+    # M3's conservative reading is unchanged — an absent finish_reason is still
+    # treated as a certified truncation — but under §9 G.1 arm 2 that class now
+    # salvages (here: no complete element, so an empty list) instead of
+    # dropping the chunk. A no-array body stays terminal either way.
     client, _calls = _client(
         '{"extracted_entities": [{"name": "Dr.', finish_reason=None, monkeypatch=monkeypatch
     )
 
-    with pytest.raises(_TruncatedJSONError) as raised:
-        _generate(client, _nodes_prompt(), ExtractedEntities, 2048)
-
-    assert str(raised.value).startswith(_TERMINAL_PREFIX)
+    result = _generate(client, _nodes_prompt(), ExtractedEntities, 2048)
+    assert result == {"extracted_entities": []}
 
 
 # ---------------------------------------------------------------------------
@@ -1138,17 +1143,21 @@ def _no_request_string_in_log(request, message):
     return True
 
 
-def test_raw_body_is_logged_before_a_failure_is_raised(monkeypatch):
+def test_raw_body_and_the_salvage_are_both_logged(monkeypatch):
+    """The bounded instrumentation survives the arm: the raw body is still
+    logged, and the salvage decision is logged on its own line with the element
+    count, so a run's report can tell a partial salvage from an empty one."""
     body = '{"extracted_entities": [{"name": "Dr.'
     client, _calls = _client(body, finish_reason="length", monkeypatch=monkeypatch)
 
     with _captured_schema_warnings() as warnings:
-        with pytest.raises(_TruncatedJSONError):
-            _generate(client, _nodes_prompt(), ExtractedEntities, 2048)
+        _generate(client, _nodes_prompt(), ExtractedEntities, 2048)
 
     text = " ".join(record.getMessage() for record in warnings)
-    assert "Dr." in text
+    assert "Dr." in text          # the raw body, pre-failure, as before
     assert "ExtractedEntities" in text
+    assert "salvaged-prefix" in text   # the arm's own decision line
+    assert "kept_elements=0" in text and "empty=True" in text
 
 
 # ---------------------------------------------------------------------------

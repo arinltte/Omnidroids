@@ -386,26 +386,47 @@ def test_the_recorded_heads_are_verbatim_prefixes():
     [r for r in RECORDED_BODIES if r.error_class == "malformed-json"],
     ids=lambda r: r.id,
 )
-def test_recorded_malformed_bodies_fail_fast(monkeypatch, record):
-    """A ``finish_reason=length`` body is a truncation, terminal and not retried.
+def test_recorded_malformed_bodies_salvage_their_prefix(monkeypatch, record):
+    """A clamped malformed body now keeps its complete elements (HANDOFF §9 G.1 arm 2).
 
     The harness recorded an unescaped quote inside a value for these calls
-    (``Expecting ',' delimiter`` at char 412 / char 515). The persisted prefix
-    ends mid-value, so the JSONDecodeError this fixture sees is "Unterminated
-    string" rather than the harness's — the harness bound is what differs, not
-    the classification: M3 decides from ``finish_reason``, and the seam must fail
-    fast instead of burning graphiti's retry chain on a body it will always
-    produce again."""
+    (``Expecting ',' delimiter`` at char 412 / char 515): the model ran on past
+    the 4096-token clamp and the body breaks mid-element. Under the pre-arm
+    contract M3 decided from ``finish_reason`` alone and failed fast, so M2
+    skipped the whole chunk — and the measured recall ceiling is exactly those
+    skips. Now the seam recovers every COMPLETE element the body carries (here
+    the first entity) and only a genuinely unrecoverable truncation stays
+    terminal. The element is the model's own output; nothing is invented."""
 
     client, _calls = _client(
         record.body, finish_reason=record.finish_reason, monkeypatch=monkeypatch
     )
 
+    result = _generate(client, _nodes_prompt(), ExtractedEntities)
+
+    assert list(result) == ["extracted_entities"]
+    assert [
+        (entity["name"], entity["entity_type_id"])
+        for entity in result["extracted_entities"]
+    ] == list(record.recovers)
+    ExtractedEntities(**result)
+
+
+def test_a_truncation_with_no_array_value_is_still_terminal(monkeypatch):
+    """Fail-fast is preserved where nothing can be salvaged at all.
+
+    ``allow_empty`` only covers the extraction payload shape (a root object
+    whose value is an array of elements). A clamped answer with no array — or no
+    root object — has nothing to rebuild, so the pre-arm terminal path stays,
+    outside graphiti's tenacity retried set, and M2 still skips the chunk once."""
+
+    body = '{"summary": "a long scalar answer the clamp cut mid-s'
+    client, _calls = _client(body, finish_reason="length", monkeypatch=monkeypatch)
+
     with pytest.raises(_TruncatedJSONError) as raised:
         _generate(client, _nodes_prompt(), ExtractedEntities)
 
     assert str(raised.value).startswith(_TERMINAL_PREFIX)
-    # outside graphiti's tenacity retried set, so M2 skips the chunk once
     assert not isinstance(raised.value, json.JSONDecodeError)
 
 
