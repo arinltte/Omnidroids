@@ -123,7 +123,8 @@ def test_complete_body_is_returned_unchanged():
 
     The seam only calls this after ``json.loads`` fails, but the function is
     unit-tested directly, so its contract on complete bodies is pinned here."""
-    payload, kept, cut, empty = graphiti_zep._salvage_truncated_json(_COMPLETE_EDGES)
+    payload, kept, cut, empty, dropped = graphiti_zep._salvage_truncated_json(_COMPLETE_EDGES)
+    assert dropped == 0
     assert payload == {"edges": [_EDGE_OK_1, _EDGE_OK_2]}
     assert kept == 2 and empty is False
     assert json.dumps(payload, ensure_ascii=False)  # re-serialises
@@ -133,7 +134,7 @@ def test_deep_truncation_keeps_the_complete_prefix():
     """Chunk 6's shape: the clamp cut mid-string, the earlier edges are intact."""
     result = graphiti_zep._salvage_truncated_json(_CHUNK_6_BODY, allow_empty=True)
     assert result is not None
-    payload, kept, cut, empty = result
+    payload, kept, cut, empty, dropped = result
     assert kept == 2 and empty is False
     assert payload == {"edges": [_EDGE_OK_1, _EDGE_OK_2]}
     # the truncated tail is dropped, not repaired: the cut sits before it
@@ -145,7 +146,7 @@ def test_mid_first_element_truncation_is_empty_only_when_allowed():
     """A body cut inside its FIRST element recovers nothing without the flag."""
     body = _COMPLETE_EDGES[: _COMPLETE_EDGES.index('", "target') ] + '"target'
     assert graphiti_zep._salvage_truncated_json(body, allow_empty=False) is None
-    payload, kept, cut, empty = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
+    payload, kept, cut, empty, dropped = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
     assert payload == {"edges": []} and kept == 0 and empty is True
 
 
@@ -157,7 +158,7 @@ def test_reasoning_leak_body_salvages_empty_under_the_clamp():
     discard it."""
     result = graphiti_zep._salvage_truncated_json(_CHUNK_7_BODY, allow_empty=True)
     assert result is not None
-    payload, kept, cut, empty = result
+    payload, kept, cut, empty, dropped = result
     assert payload == {"edges": []} and kept == 0 and empty is True
     # without the clamp certificate, the same body is NOT salvaged
     assert graphiti_zep._salvage_truncated_json(_CHUNK_7_BODY, allow_empty=False) is None
@@ -183,7 +184,7 @@ def test_a_second_top_level_array_recovers_the_first():
     body = '{"first": [{"x": 1}], "second": [{"y": 2'
     result = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
     assert result is not None
-    payload, kept, cut, empty = result
+    payload, kept, cut, empty, dropped = result
     assert payload == {"first": [{"x": 1}]} and kept == 1 and empty is False
 
 
@@ -193,7 +194,7 @@ def test_trailing_garbage_after_a_complete_body_is_dropped():
     body = _COMPLETE_EDGES + " trailing garbage}"
     result = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
     assert result is not None
-    payload, kept, cut, empty = result
+    payload, kept, cut, empty, dropped = result
     assert payload == {"edges": [_EDGE_OK_1, _EDGE_OK_2]} and kept == 2 and empty is False
 
 
@@ -208,7 +209,7 @@ def test_escaped_quotes_and_nested_arrays_are_respected():
     )
     result = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
     assert result is not None
-    payload, kept, cut, empty = result
+    payload, kept, cut, empty, dropped = result
     assert kept == 1
     assert payload["edges"][0]["fact"] == '他说"你好{" 然后离开'
 
@@ -287,6 +288,67 @@ def test_stop_finished_defect_with_no_array_is_not_salvaged(monkeypatch):
 
     with pytest.raises(json.JSONDecodeError):
         _generate(client, _prompts(), ExtractedEntities)
+
+
+def test_a_dropped_key_in_an_early_element_recovers_the_rest():
+    """§9 G.1 arm 5: one corrupt EARLY element must not lose the whole body.
+
+    This is the confirmation repeat's chunk-6 shape, verbatim: the model omitted
+    a key (``{"id": 0, "name": "2023至2025年", -1}`` — a bare value where the
+    property name belongs). Because every rebuild starts at the body's first
+    element, ONE corrupt early element made every candidate unparsable, so the
+    chunk skipped. The salvage now also tries element slices that start after
+    the corrupt element: nothing is invented, the corrupt element is dropped,
+    and the model's own complete elements are kept."""
+
+    body = (
+        '{ "entity_resolutions": [ '
+        '{"id": 0, "name": "2023至2025年", -1}, '
+        '{"id": 1, "name": "媒体机构", "duplicate_candidate_id": 1}, '
+        '{"id": 2, "name": "珞珈裂痕", "duplicate_candidate_id": 2}]}'
+    )
+    result = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
+    assert result is not None
+    payload, kept, cut, empty, dropped = result
+    assert dropped == 1
+    assert kept == 2
+    assert payload == {"entity_resolutions": [
+        {"id": 1, "name": "媒体机构", "duplicate_candidate_id": 1},
+        {"id": 2, "name": "珞珈裂痕", "duplicate_candidate_id": 2},
+    ]}
+
+
+def test_dropping_is_a_last_resort_the_full_prefix_wins():
+    """When the early elements are valid, the whole prefix still wins — the
+    drop path fires only when the from-element-0 rebuild cannot parse."""
+    body = (
+        '{"edges": ['
+        '{"source_entity_name": "武汉大学", "relation_type": "REPORTS_ON", '
+        '"target_entity_name": "微博", "fact": "报道"},'
+        '{"source_entity_name": "武汉大学", "relation_type": "REPORTS_ON", '
+        '"target_entity_name": "抖音", "fact": "未完'
+    )
+    result = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
+    assert result is not None
+    payload, kept, cut, empty, dropped = result
+    assert dropped == 0 and kept == 1
+
+
+def test_two_corrupt_early_elements_drop_two():
+    """The drop loop continues while later elements stay recoverable."""
+    body = (
+        '{ "entity_resolutions": [ '
+        '{"id": 0, "name": "a", -1}, '
+        '{"id": 1, "name": "b", "duplicate_candidate_id"}, '
+        '{"id": 2, "name": "c", "duplicate_candidate_id": 2}]}'
+    )
+    result = graphiti_zep._salvage_truncated_json(body, allow_empty=True)
+    assert result is not None
+    payload, kept, cut, empty, dropped = result
+    assert dropped == 2 and kept == 1
+    assert payload == {"entity_resolutions": [
+        {"id": 2, "name": "c", "duplicate_candidate_id": 2}
+    ]}
 
 
 def test_other_finish_reasons_are_outside_the_salvage(monkeypatch):
