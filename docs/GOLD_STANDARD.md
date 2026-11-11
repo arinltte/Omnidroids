@@ -293,6 +293,89 @@ in the gold. No queue item rescued to gold or borderline.
 **Verdict: do not adopt.** The next recall lever is now unambiguous: it is upstream of
 extraction quality (the `malformed-json` path that skips chunks 6, 7), not the ontology.
 
+## 5.2 The second quality arm — bounded truncation salvage — **MEASURED 2026-11-11: RECALL +3 ENTITIES (+42.9 points), the first arm that moves the gold**
+
+**What changed (one variable, code):** `_CappedLLMClient._generate_response`
+(`backend/app/utils/graphiti_zep.py`) now, on a **certified clamp truncation**
+(`finish_reason` is `None` or `"length"`), recovers the longest prefix of COMPLETE elements of
+the response's single-array body and re-closes the containers — empty when no element
+completes — instead of raising `_TruncatedJSONError` and losing the whole chunk. New
+`_salvage_truncated_json`; schema-echo detection is re-applied to the salvage (an echo-shaped
+truncated body still fails fast); a body with **no array value stays terminal**; a
+`stop`-finished defect still propagates for retry. No ontology, prompt, budget, chunk or
+concurrency change. Tests: `backend/tests/test_graphiti_truncation_salvage.py` (16 new) + 6
+existing truncation tests re-pinned to the new contract; suite **429 passed**, compileall
+clean.
+
+**Provenance:** run `salvage_1794364184` (evidence triple
+`scratch/chunkslice_salvage_1794364184.log/.json/_backend.log`); code state = the salvage
+patch, **uncommitted at run time**, committed as the head of `malformed-json-salvage-arm`;
+gold v1.2 at run time (re-scored under v1.3 below); model from the **backend log** `mlx
+LFM3-1.7B-MLX-8bit generate … max_tokens=4096`; production budget 4096, concurrency default;
+slice unchanged; ontology = the frozen baseline (the harness default was restored before the
+run); wall **736.4 s**, **7 ok / 1 skipped** (chunk 2 — a `finish_reason=stop` generation
+defect, a class this arm deliberately does not touch); 116 LLM calls, 76 retries; graph
+**87 nodes (62 untyped) / 92 edges**; peak `run.py` RSS 1676 MB; Ollama asserted empty before
+and after, no idle `python3.11`.
+
+**The mechanism, measured in the log:** chunk 6's `ExtractedEdges` call hit the clamp at
+**9672 bytes → the salvage kept 41 complete edges (cut at 9459)** and the chunk landed ok
+(44 nodes / 41 edges) — the first time chunk 6 has ever produced on this slice. Chunk 7's
+calls completed cleanly this run (its entity call had already extracted 抖音/小红书/B站 in the
+control). Control and arm scored under the same gold (v1.3) for the table below.
+
+| gold metric (v1.3) | control `ab8before2_1794285607` | **salvage `salvage_1794364184`** | read |
+|---|---:|---:|---|
+| **entity recall** | 2/7 = 0.286 | **5/7 = 0.714** | **+3 entities = +42.9 points — above the 14.3-point resolution limit** |
+| recall on attempted chunks | 2/2 = 1.00 | 6/7 = 0.833 | E07 sits on the one skipped chunk (2) |
+| gold entities missing | 5 platforms (chunks 6, 7) | 微博 + 甲醛事件在线协同维权 (both chunk 2) | the skip still costs — one chunk, not two |
+| precision (unadjudicated) | 0.061 | 0.058 | unchanged (noise scale) |
+| junk + unknown (adjudicated) | 31/33 = 0.94 | 76/87 = 0.87 | unchanged class |
+| over-split (E01) | 0 | 1 — `武汉大学`/`校方` two nodes | recurring coreference fault |
+| type accuracy on matched | 1/2 | 5/6 | noise scale |
+| **gold edge recall** | 0/5 | 0/5 | unchanged — see finding 3 |
+| wrong-relation gold pairs | 0 | **4** | the platform pairs now exist, with invented names |
+| off-ontology relation rate | 1.00 | 1.00 | seam property unchanged |
+| temporal completeness / **text-derived** `valid_at` | 0/5 / 0 of 48 | 0/5 / **2 of 92** | first text-derived dates in any arm |
+| attribute support | 2/10 | 9/22 (0.41) | noise scale |
+| calls / retries / wall | 92 / 47 / 1058 s | 116 / 76 / 736.4 s | wall −30 % |
+| **calls per gold entity** | 46.0 | **23.2** | **halved** |
+| chunks ok / skipped | 6 / 2 | 7 / 1 | the failure moved class, it did not vanish |
+
+**Findings:**
+
+1. **The gold's diagnosis is confirmed by intervention.** The recall ceiling was the
+   skip guard: recovering the model's own finished elements turns 2/7 into 5/7 with no
+   ontology, prompt, budget or concurrency change. Diagnosis (§5 finding 1) and
+   intervention (here) now agree — the only arm so far that moves a numbered metric.
+2. **Cost per correct entity halved** (46.0 → 23.2) despite 26 % more calls: runbook
+   §4.1 ranked junk nodes as the top cost lever (Exp-5 falsified that), but the measured
+   lever was *losing finished work* — every skipped chunk discards 3–47 paid-for calls.
+3. **Edge recall did not move (0/5), and why matters:** the platform→university pairs now
+   exist as edges (4 wrong-relation pairs) but the model's relation names stay invented
+   (`off_ontology_relation_rate` 1.00). Salvage recovers **content, not naming**. The edge
+   lever is relation-name conformity — Exp-3's neighbourhood and the
+   `enforce_edge_type_signatures` seam — a separate arm.
+4. **The one skip changed class, honestly:** chunk 2 is now a `stop`-finished generation
+   defect. The arm's contract deliberately keeps that path terminal/retryable
+   (`test_a_truncation_with_no_array_value_is_still_terminal`), so the defect is visible
+   instead of masked — 8/8 needs a defect repair, then relation names, as separate arms.
+5. **Two text-derived `valid_at` appear for the first time** (the salvaged chunk-6 edges
+   carried document-stated months). Completeness is still 0/5 — both endpoints plus the
+   exact window are required — but the temporal gap is no longer total.
+6. **Junk is untouched** (adjudicated 0.87 vs 0.94): abstract themes and metrics are
+   orthogonal to salvage.
+
+**Queue adjudication (by hand — §2.8):** 30 items ruled; **24 junk by rule** folded into the
+gold (v1.3); **6 ruled not-addable** — `Dr. Osei`, `Nisha`, `政府监管` (named-person /
+known hallucination with no surface form in the slice) and `武汉大学品牌声量与影响力分析`,
+`AAN`, `政府机构` (the checker could not ground them). They stay in this record, not in the
+gold. No queue item rescues to gold or borderline.
+
+**Verdict: adopt for the truncation class** — recommend the merge of
+`malformed-json-salvage-arm` (owner's call, unmerged). The remaining recall ceiling is the
+single generation-defect chunk plus edge relation naming; neither is touched by this arm.
+
 ## 6. Independent second annotation
 
 `--agree` computes the inter-annotator agreement between this gold and a second,
@@ -382,6 +465,10 @@ standard.
 3. Owner sign-off on the gold, then **and only then** use it to rank Exp-3
    (schema normalisation), Exp-5 (`Person` removal), Exp-6/Exp-7 (concurrency,
    chunk size). The §9 G ordering does not change.
+   **Status:** the owner approved running the recommended arm; two arms have now
+   run — Exp-5 null-to-negative (not adopted), salvage **+3 entities** (§5.2,
+   adoption recommended, unmerged). The different-model second pass is still
+   open.
 4. Note the resolution limit before ranking anything: **7 gold entities and 5 gold
    edges mean one entity is worth 14.3 recall points and one edge 20 edge-recall
    points.** An arm that moves fewer than two entities is indistinguishable from
@@ -413,3 +500,5 @@ engines) moves no recall figure at all.
 Every revision must keep `--check` green and must record its reason here, because
 the gold is the reference: quiet edits to it move every number ever published
 against it.
+
+| 1.3 | 2026-11-11 | **+24** grounded junk entries from the salvage arm's queue adjudication (`J166`-`J189`: 11 `abstract-concept`, 6 `metric`, 2 `role-class`, 2 `public-perception`, 1 `generic-mass`, 1 `content-artifact`, 1 `content-format`, 1 `out-of-ontology-type` — `图书馆`); **0** tier changes; `--check` green; a scorer robustness fix in `scratch/gold_score.py` (attribute-support lookup by the matched node's own name, not the gold's — a match on an alias surface form crashed it) | **Adjudication of the second quality arm's review queue (salvage, §5.2).** Same rule as v1.2: every addition is rule-justified and re-grounded; six ruled items were **not added** because their surface forms occur nowhere in the slice (`Dr. Osei` / `Nisha` — named persons the slice never contains; `政府监管` — the v1.0.1 precedent; `武汉大学品牌声量与影响力分析` / `AAN` / `政府机构` — ungroundable concatenations or absent terms). §5.2 reports both the as-scored (46 junk + 30 unknown) and as-adjudicated (70 junk + 6 unknown) reads. |

@@ -36,6 +36,7 @@ import asyncio
 import atexit
 import hashlib
 import json
+import re
 import signal
 import shutil
 import threading
@@ -991,6 +992,98 @@ def _normalize_to_schema(payload, response_model, messages):
     return normalized if changed else payload
 
 
+def _salvage_truncated_json(text: str, allow_empty: bool = False):
+    """Bounded salvage of a clamp-truncated extraction body (HANDOFF §9 G.1 arm 2).
+
+    A 1.7B edge response regularly dies at the M1 clamp mid-payload
+    (``finish_reason="length"`` — e.g. ``Unterminated string ... char 10037`` on
+    chunk 6 of the frozen slice). Today that single failed call discards the
+    whole chunk, even though the entity and resolution calls already succeeded.
+    This recovers the longest prefix of COMPLETE elements in the response's
+    first array value and re-closes the containers, so the chunk keeps what the
+    model actually finished.
+
+    Contract (deliberately conservative — this function never invents content):
+    * it only rebuilds the single-array shape every extraction response model
+      uses (``{"<key>": [<elements>]}\``); a body whose first array lives under a
+      second key, or which has no root object/array at all, returns ``None``;
+    * a complete body returns its own elements unchanged;
+    * a truncated body with >=1 complete element returns that prefix;
+    * a truncated body with 0 complete elements returns an empty list ONLY when
+      the caller passes ``allow_empty`` (i.e. the clamp is certified by
+      ``finish_reason``) — the chunk then keeps its entities and loses only the
+      call that was garbage anyway.
+
+    Returns ``(payload, kept_elements, cut_index, empty)`` or ``None``.
+    """
+    if not text:
+        return None
+    start = text.find("{")
+    if start < 0:
+        return None
+    key_match = None
+    array_open = -1
+    last_close = -1
+    depth = 0
+    in_string = False
+    escape = False
+    i = start
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+                if depth == 2 and i + 1 > last_close:
+                    last_close = i + 1  # a scalar element just closed
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            depth += 1
+            if depth == 2 and ch == "[":
+                if array_open >= 0:
+                    return None  # a second array value: not our shape
+                array_open = i
+                key_match = re.match(r'\s*\{\s*"([^"]+)"\s*:\s*$', text[start:array_open])
+                if key_match is None:
+                    return None
+        elif ch in "}]":
+            if depth == 3 and ch == "}":
+                # an object element closes; its parent is the array (depth 2)
+                if i + 1 > last_close:
+                    last_close = i + 1
+            # NB: the array's own ']' is NOT a cut point — the rebuild appends
+            # ']}', so recording past the ']' would double-close it.
+            depth -= 1
+            if depth == 0:
+                break  # the root object closed: body was complete
+            if depth < 0:
+                return None
+        i += 1
+    if array_open < 0 or key_match is None:
+        return None
+    key = key_match.group(1)
+    if last_close < 0:
+        if not allow_empty:
+            return None
+        return ({key: []}, 0, start, True)
+    rebuilt = text[start:last_close] + "]}"
+    try:
+        payload = json.loads(rebuilt)
+    except json.JSONDecodeError:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, list) or not all(isinstance(e, dict) for e in value):
+        return None
+    return (payload, len(value), last_close, False)
+
+
 def _build_llm_client():
     from openai import AsyncOpenAI
 
@@ -1122,6 +1215,39 @@ def _build_llm_client():
                 # (unescaped quote, wrong keys, …), not a truncation: mislabelling
                 # it wastes the measurement, so let it propagate and be retried.
                 if finish_reason is None or finish_reason == "length":
+                    # Bounded salvage (§9 G.1 arm 2): a certified clamp
+                    # truncation still carries the elements the model finished.
+                    # Recover the longest complete prefix instead of losing the
+                    # whole chunk; nothing is invented, and an echo-shaped
+                    # salvage still fails fast below.
+                    salvage = _salvage_truncated_json(
+                        self._strip_code_fences(result),
+                        allow_empty=True,
+                    )
+                    if salvage is not None:
+                        payload, kept, cut, empty = salvage
+                        logger.warning(
+                            "graphiti LLM response [salvaged-prefix]: model=%s "
+                            "kept_elements=%d empty=%s cut_bytes=%d body_bytes=%d "
+                            "finish_reason=%s",
+                            getattr(response_model, "__name__", response_model),
+                            kept,
+                            empty,
+                            cut,
+                            len(result),
+                            finish_reason,
+                        )
+                        if _looks_like_schema_echo(payload, response_model):
+                            raise _SchemaEchoError(
+                                f"schema echo: model returned the JSON Schema for "
+                                f"{getattr(response_model, '__name__', response_model)} "
+                                f"inside a truncated body (not retried)"
+                            )
+                        return _normalize_to_schema(
+                            payload,
+                            response_model,
+                            messages,
+                        )
                     raise _TruncatedJSONError(
                         f"truncated/unparseable JSON response (not retried): {exc}"
                     ) from exc
