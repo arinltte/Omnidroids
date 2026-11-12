@@ -63,6 +63,86 @@ Fresh **graph id per run**: `check<n>_<slug>_<epoch>` (e.g. `chunk1500_1p7b_1794
 Evidence lives in the `.log` + `.json` + `_backend.log` triple — cite the triple, not a
 remembered number.
 
+## 2.1 The recovery path — what the seam does with a malformed body
+
+**Read this before touching the extraction seam.** Since 2026-11-11 the seam recovers the
+model's own finished elements from an unparseable body instead of discarding the whole chunk
+(`_salvage_truncated_json` in `backend/app/utils/graphiti_zep.py`, driven from
+`_CappedLLMClient._generate_response`). The full record is `docs/GOLD_STANDARD.md` §5; this
+section is the *contract a modifier must keep*.
+
+**The policy, by failure class** (one variable per change — never widen a class silently):
+
+| class (`finish_reason`) | pre-recovery behaviour | recovery now |
+|---|---|---|
+| `"length"` or absent (certified clamp) | terminal `_TruncatedJSONError`, chunk skipped | longest complete element slice; **empty answer allowed** — the chunk keeps its other calls |
+| `"stop"` (generation defect) | propagates for tenacity's retry | longest complete slice; **empty NOT allowed** — a defect with nothing complete still propagates (retry preserved) |
+| anything else | propagates | **unchanged** — the salvage never sees it |
+| schema-echo shape (any class) | terminal `_SchemaEchoError` | still terminal — the salvage's payload is re-checked by `_looks_like_schema_echo` before use |
+
+**The invariants** (pinned by `backend/tests/test_graphiti_truncation_salvage.py` — 21 tests;
+the suite is the gate):
+
+1. **Nothing is invented.** Every candidate slice is validated *by parsing*; the scanner alone
+   is not trusted (a defect body's later text can quote-balance out and fool it).
+2. **Corrupt early elements are dropped, never repaired.** When no from-element-0 slice
+   parses, the salvage retries from later element boundaries and returns `dropped_early` —
+   the payload and the log line both carry the count, so a run's report cannot hide a loss.
+3. **Only the single-array shape is rebuilt** (`{"<key>": [<elements>]}`) — a second top-level
+   array, no root object, or no array value recovers nothing.
+4. **The return contract is a 5-tuple** `(payload, kept, cut, empty, dropped_early)`; changing
+   it is a two-callsite change (truncation + defect branches).
+
+**Extending it** (the recipe that worked for each added class): write the failing-body test
+first (the verbatim recorded shape — the malformed bodies are recoverable from a run's
+`per_call` rows and the `_backend.log`'s `graphiti LLM response:` lines), watch it fail, widen
+the scan, keep 1–4 green, then measure on the frozen slice before claiming anything.
+
+**Grepping a run for recovery events** (the `_run.log` tees the backend log's lines):
+
+- `salvaged-prefix` — a certified clamp truncation was recovered (`kept_elements`, `empty`,
+  `dropped_early` on the line).
+- `salvaged-defect` — a `stop` defect was recovered.
+- Still terminal: `truncated/unparseable JSON response (not retried)`.
+
+**Traps that cost time here** (paid once each):
+
+- A **`ProjectStatus`** value that does not exist in the enum breaks `GET`/`POST` on *every*
+  project route with a 500 (`Project.from_dict` validates on load). Statuses are exactly
+  `created` / `ontology_generated` / `graph_building` / `graph_completed` / `failed` — never
+  invent one, and validate after any direct edit to a stored `project.json`.
+- The scorer's own gate is manual: `gold_score.py --check` must pass **before** `--score` on a
+  freshly edited gold (§4 of `docs/GOLD_STANDARD.md`). A self-gating `--score` and a
+  `--fold-queue` adjudication mode are the recorded gaps (tracker #56).
+- The per-call log line caps the body at 400 chars (`%.400s`), so a late failure looks healthy
+  in the log; read the failing body from the harness JSON's `per_call` rows (`body_head`/
+  `body_tail`), not from the log.
+
+## 2.2 Driving a full document build without the browser
+
+For future full-document tests (the 53-chunk acceptance build takes ~2.3 h at the measured
+rate), the production path is drivable over HTTP — no UI clicks needed:
+
+```bash
+# 1. launcher (or run.py from backend/); wait for the health route
+curl -s http://localhost:5001/health        # {"status":"ok",…}
+# 2. claim the build for a project whose status is a valid, buildable one
+curl -s -X POST http://localhost:5001/api/graph/build \
+    -H "Content-Type: application/json" \
+    -d '{"project_id": "proj_xxxx", "chunk_size": 500, "chunk_overlap": 50}'
+#    → {"task_id": …}; poll it:
+curl -s http://localhost:5001/api/graph/task/<task_id>
+# 3. the authoritative progress split is the batch record, not the progress line
+ls -t backend/data/graphiti/<graph_id>/batches/*.json   # items[].status: succeeded/skipped/pending
+# 4. stop with SIGTERM (Ctrl+C on the launcher) — never kill -9 (Kuzu WAL → SIGBUS)
+```
+
+The measured full-build result (2026-11-11, task `a029c3a1` on the acceptance document):
+**49/53 succeeded, 4 skipped (7.5 %), 410 nodes / 736 edges, guard passed with 5× margin** —
+the pre-recovery rebuilds tripped it. Project-specific settings live in
+`backend/uploads/projects/<id>/project.json` (the ontology the extractor actually uses); back
+the file up before editing it, and keep the status a valid enum value.
+
 ## 3. Reading a run (the traps that lie)
 
 - **Which model served**: the backend log's `mlx <model> generate: prompt_tokens=…

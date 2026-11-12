@@ -143,3 +143,40 @@ harness's `model=` line), quantisation, provider, graphiti version, output mode,
 version + schema/dataset hashes, chunk config, budget, concurrency, retry config, wall
 time, node/edge counts, and per-chunk failure class.
 _Avoid_: metadata, config dump.
+
+**Recovery path**:
+What the seam does with a malformed model body: it keeps the model's own complete
+elements instead of discarding the chunk. Policy by failure class, the invariants,
+the extension recipe and the full-build HTTP recipe: `docs/MEASUREMENT_RUNBOOK.md`
+§2.1–§2.2. The measured record: `docs/GOLD_STANDARD.md` §5.
+_Avoid_: repair (the proxy's own complete-value parser), retry (a different mechanism).
+
+**Salvage class**:
+The failure class a recovery applies to: a certified clamp truncation
+(`finish_reason` `length` or absent) or a `stop`-finished generation defect. A class
+never widens silently — one variable per change, measured on the slice first.
+_Avoid_: error type, failure mode.
+
+**Dropped early**:
+The count of corrupt leading elements the recovery discarded so later complete
+elements could be kept. It rides in the payload and the log line, so a report
+cannot hide the loss.
+_Avoid_: skipped (that means a chunk), dropped nodes (a different metric).
+
+## The arms ledger — what is already measured (2026-11-11)
+
+Never re-run a measured arm; the table says what happened and what the result was
+for. Model `LFM3-1.7B-MLX-8bit`, production budget 4096, frozen slice unless noted.
+
+| arm | change | outcome |
+|---|---|---|
+| baseline | none (control `ab8before2_1794285607`) | recall 2/7, gold edges 0/5, 46 calls per gold entity, 2 chunks skipped |
+| Exp-5 | ontology: drop the `Person` catch-all | **null-to-negative — not adopted** (recall unchanged, precision halved; junk is ontology-independent) |
+| truncation salvage | code: keep complete elements from a clamped body | **adopted** — recall 5/7, confirmed on a repeat |
+| defect salvage | code: same for a `stop`-finished defect | **adopted** — recall 7/7, 8/8 chunks |
+| edge descriptions | ontology: sharpen the 10 edge-type descriptions | **adopted with the code** — first conformant relation names; all 5 gold edges in the combined run |
+| drop-corrupt-early | code: drop corrupt leading elements, keep the rest | **adopted** — closes the last skip class; combined with the descriptions, banks every gold metric |
+| **full build** | none: the 53-chunk document through the launcher | **49/53 ok, 4 skipped (7.5 %), 410 nodes / 736 edges, no errors** |
+
+**Already falsified — do not re-run**: description wording for the `Person` catch-all (§9 C),
+budget 8192, the 9B, chunk 1500 (§9 B), and Exp-5 as a precision lever.
