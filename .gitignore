@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 .venv/
+# The pre-commit gate's ruff cache (scripts/pre-commit)
+.ruff_cache/
+backend/.ruff_cache/
 
 # Frontend
 node_modules/
@@ -21,6 +24,8 @@ models/*
 
 # Secrets
 .env
+# The scoped pylint gate's cache
+backend/.pylint.d/
 
 # OS
 .DS_Store

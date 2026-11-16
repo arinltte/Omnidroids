@@ -64,7 +64,13 @@ class TaskManager:
     
     _instance = None
     _lock = threading.Lock()
-    
+    # Declared for the static readers (the scoped pylint gate, §9 P1): the
+    # singleton assigns both on the instance inside __new__, which inference
+    # cannot see. Class-level annotations only — no runtime attribute, no
+    # behavior change.
+    _tasks: "Dict[str, Task]"
+    _task_lock: "threading.Lock"
+
     def __new__(cls):
         """单例模式"""
         if cls._instance is None:
