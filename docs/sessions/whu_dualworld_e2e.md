@@ -55,14 +55,15 @@ run for the interactive `omni` CLI (§9 K) and for any agent-driven full-pipelin
 
 ## Running it through the interactive console (ticket #69)
 
-The console is the acceptance surface for this card. The documented procedure:
+The console is the acceptance surface for this card. The documented procedure
+(HANDOFF §9 L.5 — the console shipped in `scratch/omni_runner/console.py`;
+§9 L.4's measured runs are the pre-acceptance evidence):
 
 ```bash
 cd /Users/chenjinshen/Downloads/Prediction/Omnidroids
 ./Omnidroids.sh                 # asks "CLI or browser?" → CLI
 #   → the console starts, adopts the launcher's backend (never signaled)
-#   → "new run" → document: ../武汉大学品牌声誉深度分析报告.pdf
-#   → requirement: 如果武汉大学发布了对肖某某处分的撤销公告，大众舆情走向会怎么样
+#   → new ../武汉大学品牌声誉深度分析报告.pdf 如果武汉大学发布了对肖某某处分的撤销公告，大众舆情走向会怎么样
 #   → steps 1-5 run with the live per-step board
 #   → step 5: ask the five questions below, one at a time
 ```
@@ -74,6 +75,34 @@ The five step-5 questions, in order (big model, `POST /api/report/chat`):
 3. 海外校友（#DefendWHU）与国内舆论的分歧点是什么？
 4. 图谱中连接最多的人物/机构是谁，说明了什么？
 5. 如果校方当初没有撤销处分，推演结果会有什么不同？
+
+### The unattended form (a script file, one command per line)
+
+```bash
+cat > /tmp/whu_acceptance.cmd <<'EOF'
+new "../武汉大学品牌声誉深度分析报告.pdf" 如果武汉大学发布了对肖某某处分的撤销公告，大众舆情走向会怎么样
+chat 谁的影响最大？
+chat 结果是什么？
+chat 海外校友（#DefendWHU）与国内舆论的分歧点是什么？
+chat 图谱中连接最多的人物/机构是谁，说明了什么？
+chat 如果校方当初没有撤销处分，推演结果会有什么不同？
+report
+logs agent 20
+quit
+EOF
+./Omnidroids.sh < /tmp/whu_acceptance.cmd     # or: OMNI_INTERFACE=cli ./Omnidroids.sh < ...
+```
+
+**Budgets the run needs above** (the console's own defaults already are):
+the phase budget is 4 h (the graph build measured 2 h 23 m) and the report's
+is 1 h (three sections measured 24–27 min on the big model). Do not lower
+them; a lower bound is the runner's `report_timeout`, not a platform failure.
+
+**Done means:** all five questions answered by the report agent (each answer
+printed verbatim, with its tool calls), every step's board row `completed`, and
+a failing step — if any — carrying the platform's own reason verbatim (never a
+generic failure message). Only then is this card's acceptance pass recorded
+in `HANDOFF.md` §9 L.5.
 
 **The acceptance rule:** a step that fails is reported with the **platform's own
 reason** — the console prints the platform's error line verbatim, never a

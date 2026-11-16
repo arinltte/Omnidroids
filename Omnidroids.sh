@@ -9,6 +9,12 @@
 #    - Finder 提示“无法打开”时：右键 -> 打开；或先执行一次:
 #        chmod +x Omnidroids.sh
 #    - 不自动开浏览器: OPEN_BROWSER=0 ./Omnidroids.sh
+#    - 界面选择: 后端就绪后询问 "CLI or browser?"
+#        CLI  → 交互式 omni 控制台(scratch/omni interactive --adopt-backend)
+#        浏览器 → 打开 SPA 主页面(既有行为)
+#        无人值守: OMNI_INTERFACE=cli|browser 直接指定, 不再询问
+#      CLI 控制台收养本脚本启动的后端: 只观察, 从不发信号 —— 进程树仍只有
+#      一棵, 停止仍只有本脚本的 SIGTERM。
 #    - 停止: 在本窗口按 Ctrl+C（仅发送 SIGTERM —— 绝不 kill -9，
 #      Kuzu WAL 在 SIGBUS 后会损坏；后端内部还会自行清理）。
 #    - 所有 HuggingFace 产物都导出到 Omnidroids/.cache/hf，绝不落入 ~/.cache。
@@ -115,6 +121,47 @@ echo "   后端 API       : http://localhost:5001/api"
 echo "   本地 AI 监控    : http://localhost:5001/monitor (手动访问；第3步模拟页也有入口)"
 echo "   停止: 在本窗口按 Ctrl+C (SIGTERM，绝不 kill -9)"
 echo "=============================================================="
+
+# ---------------- 5) 界面选择: CLI 还是浏览器 (ticket #69) ----------------
+# 交互式 omni 控制台是可选的浏览器替代品: 同一个后端/同一个 DB, 两种前端。
+#   OMNI_INTERFACE=cli      → 直接进控制台(不问, 用于无人值守/脚本驱动)
+#   OMNI_INTERFACE=browser  → 直接进浏览器(不问)
+#   交互式终端              → 询问 "CLI or browser?"
+#   OPEN_BROWSER=0          → 不问, 也不开浏览器(既有行为不变)
+# 控制台以 --adopt-backend 启动: 它「收养」本脚本启动的后端 —— 只观察,
+# 从不发信号, 从不启动也从不拆除。进程树仍然只有一棵, 停止仍然只有本脚本
+# 的 SIGTERM(cleanup), 绝不升级到 kill -9 (Kuzu WAL)。
+INTERFACE="${OMNI_INTERFACE:-}"
+if [ -z "$INTERFACE" ]; then
+  if [ "$OPEN_BROWSER" = "1" ] && [ -t 0 ]; then
+    printf '[omnidroids] CLI or browser? [C/b] '
+    read -r ANSWER || ANSWER=""
+    case "$ANSWER" in
+      c|C|cli|CLI|1) INTERFACE="cli" ;;
+      *)             INTERFACE="browser" ;;
+    esac
+  else
+    INTERFACE="browser"
+  fi
+fi
+
+if [ "$INTERFACE" = "cli" ]; then
+  echo ""
+  info "启动交互式控制台 (收养后端, 不接管它的生命周期)…"
+  info "控制台命令: new · sessions · use · status · chat · logs · report · quit"
+  echo "=============================================================="
+  # 前台运行: Ctrl+C 先到控制台(它自己中止运行), 再到本脚本(cleanup SIGTERM 后端)
+  "$PROJECT_DIR/scratch/omni" interactive --adopt-backend --port 5001
+  CONSOLE_RC=$?
+  echo ""
+  echo "=============================================================="
+  info "控制台已退出 (exit $CONSOLE_RC)；后端仍在运行"
+  info "停止: 在本窗口按 Ctrl+C (SIGTERM，绝不 kill -9)"
+  echo "=============================================================="
+  # 保持前台, 等待被 Ctrl+C(cleanup 里 SIGTERM 停止后端)
+  wait
+  exit 0
+fi
 
 if [ "$OPEN_BROWSER" = "1" ]; then
   open "http://localhost:5001" 2>/dev/null || true
