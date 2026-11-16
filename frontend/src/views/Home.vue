@@ -6,7 +6,6 @@
       <div class="nav-links">
         <router-link to="/models" class="nav-link">{{ $t('nav.models') }}</router-link>
         <LanguageSwitcher />
-        <AppearanceSwitcher />
         <a href="https://github.com/arinltte/Omnidroids" target="_blank" class="github-link">
           {{ $t('nav.visitGithub') }} <span class="arrow">↗</span>
         </a>
@@ -218,7 +217,6 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
-import AppearanceSwitcher from '../components/AppearanceSwitcher.vue'
 
 const router = useRouter()
 

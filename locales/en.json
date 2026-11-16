@@ -34,12 +34,6 @@
     "home": "Home",
     "models": "Models"
   },
-  "appearance": {
-    "label": "Appearance",
-    "system": "System",
-    "light": "Light",
-    "dark": "Dark"
-  },
   "sessions": {
     "title": "Sessions",
     "newPrediction": "New prediction",

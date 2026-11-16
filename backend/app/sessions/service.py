@@ -47,10 +47,14 @@ def _downstream_ids(project: Project) -> Dict[str, str]:
         # the latest simulation for this project
         ids["sim_id"] = simulations[-1].simulation_id
     try:
-        from ..services.report_agent import ReportAgent
+        # ``get_report_by_simulation`` lives on ReportManager (the persisted
+        # report store), not on ReportAgent (the generator): calling it on the
+        # generator raised AttributeError that this except swallowed, so a
+        # finished report never routed the session past ``simulate``.
+        from ..services.report_agent import ReportManager
 
         for simulation in simulations:
-            report = ReportAgent.get_report_by_simulation(simulation.simulation_id)
+            report = ReportManager.get_report_by_simulation(simulation.simulation_id)
             if report:
                 ids["report_id"] = report.report_id
                 break
