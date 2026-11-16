@@ -151,7 +151,12 @@ if [ "$INTERFACE" = "cli" ]; then
   info "控制台命令: new · sessions · use · status · chat · logs · report · quit"
   echo "=============================================================="
   # 前台运行: Ctrl+C 先到控制台(它自己中止运行), 再到本脚本(cleanup SIGTERM 后端)
-  "$PROJECT_DIR/scratch/omni" interactive --adopt-backend --port 5001
+  # OMNI_CONSOLE_ARGS: 无人值守时可给控制台传自己的参数(它的 flags 原样透传),
+  # 例如 ACCEPTANCE_12 §2 记录的本体紧凑约束 --additional-context。默认空 =
+  # 行为与之前完全一致(ticket #69 的默认调用不变)。
+  OMNI_CONSOLE_ARGS="${OMNI_CONSOLE_ARGS:-}"
+  # shellcheck disable=SC2086  # 有意按词拆分: 一个参数一个 flag
+  "$PROJECT_DIR/scratch/omni" interactive --adopt-backend --port 5001 $OMNI_CONSOLE_ARGS
   CONSOLE_RC=$?
   echo ""
   echo "=============================================================="
