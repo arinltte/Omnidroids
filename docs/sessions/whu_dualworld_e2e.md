@@ -162,3 +162,70 @@ exactly as §9 L.3/L.5 describe it: one project `proj_58491d9f98a5`, one session
 and its report, plus the untouched historical `sim-*` / `report_*` fixtures. The
 launcher's SIGTERM stopped the backend; `:5001` is free. The console printed the
 platform's own line and exited — no generic failure message, no re-diagnosis.
+
+## The token budget, measured (2026-11-17)
+
+Before the rerun, the budget question was settled by measurement — the knob named
+by the platform's own 502 line (`raise MLX_MAX_TOKENS`) is not the cause:
+
+- `ONTOLOGY_LLM_MAX_TOKENS` / `MLX_MAX_TOKENS`: both **4096**, the platform's own
+  default; the owner's `.env` sets neither.
+- A complete WHU ontology is **1,552 tokens** (the keeper's, this document) — the
+  budget has 2.6× headroom, and the model stops on its own at 1,683 / 3,549 /
+  1,739 completion tokens in three probe samples: the cap is never reached.
+- Raising both to **8192** and re-running the acceptance failed step 1 again with
+  the platform's own reason: `LLM JSON output was truncated at the token limit`.
+- The model's failure mode is its own JSON discipline — a stray token inside the
+  repetitive `source_targets` blocks (`Expecting ',' delimiter`), which appears
+  at 4,096 and at 16,384 alike.
+- **Step 1 passes with #48's compact-ontology `additional_context`** (≤1 attribute
+  per type, no `examples`, few edge types, short `analysis_summary`): measured
+  **1/3 route calls bare vs 3/3 compact** at the platform's own budget; the live
+  run completed step 1 in **95.48 s, entity_types=10 edge_types=9**. It only
+  shapes the ontology prompt — never the simulation requirement or a later phase.
+  Carry it as the console's own `--additional-context`, through the launcher's
+  `OMNI_CONSOLE_ARGS` (commit `ae361ec`).
+
+**Step 2's pace, measured on this run** (the platform's own task message):
+`Graphiti 处理中... 11/53 完成, 42 待处理 (5264秒)` = **8.0 min/chunk** against the
+card's own 2.7 min/chunk basis (53/53 in 2 h 22 m 35 s). Cost structure from the
+platform's own log: ~22.6 generate calls per chunk, median inter-call gap 15 s;
+168 nodes / 180 edges at 11 chunks = 15.3 nodes per chunk against the keeper
+graph's 8.2. The two ontologies are structurally identical (10 entity / 9 edge
+types, 1 source_target each, 0.74 vs 1.21 attributes per type), so this run's
+ontology is leaner, not heavier — its entity-type set is simply junkier
+(`CourtCase`, `PersonEvent`, `PersonGroup`), which plausibly costs extraction
+calls. Projection at the measured pace: 53/53 at ~02:43Z, i.e. ~7 h — the
+console's 4 h phase budget (calibrated on 2.7 min/chunk) fires at ~23:41Z at
+~29/53 with the platform still building.
+
+## Attempt 3 (2026-11-17) — step 1 passed, step 2 hit the runner's 4 h bound at 26/53
+
+`OMNI_CONSOLE_ARGS='--additional-context <compact-ontology>' OMNI_INTERFACE=cli
+./Omnidroids.sh < /tmp/whu.cmd` (run `20261116T193929Z-6dceec`, transcript
+`/tmp/whu_acceptance.log`):
+
+* **Step 1 — completed, 95.48 s**: `entity_types=10 edge_types=9`, the run's own
+  block and board row agree.
+* **Step 2 — failed, the runner's own verdict, verbatim**:
+  `graph build c9bd7cae-54df-47d8-a60e-c9d445736886 did not reach a terminal
+  state within 14400s` — with the platform's own record at that moment:
+  **26 landed · 0 skipped · 27 never_run** (the run's `events.jsonl`, and the
+  platform's own `Graphiti 处理中... 26/53 完成, 27 待处理`). The session row:
+  `interrupted before completion; resume continues from the last checkpointed
+  chunk`.
+* The platform kept building after the runner stopped watching (§9 L.5 rule 1,
+  at step 2 instead of step 5). The bound was calibrated on 2.7 min/chunk; this
+  run measured **8.0–9.9 min/chunk** start to finish — cause not established
+  (the graphs' node/edge rates explain ~1.16× of it).
+* The transcript's live tally `landed=52` is a console defect the run itself
+  measured (double-counted per-chunk notes), fixed in
+  `scratch/omni_runner/console.py`; the contract's single-count semantics is now
+  pinned again.
+* Cleanup and machine state: the run's session/project deleted through the
+  platform's own routes, its orphan graph directory removed from disk, SIGTERM
+  only, `:5001` free — the one-project / one-session / one-graph state stands.
+* **The next attempt is not accepted yet.** A budget above the measured pace is
+  needed — per-run flags, the console's defaults untouched:
+  `--phase-timeout 36000 --report-timeout 10800`, plus the compact-ontology
+  `--additional-context` that carries step 1.
