@@ -52,3 +52,47 @@ run for the interactive `omni` CLI (§9 K) and for any agent-driven full-pipelin
   check `backend/data/graphiti/` for strays before suspecting the live graph.
 - The report band (`REPORT_WORD_COUNT_MIN/MAX`, 250–350) is calibrated on English; a
   complete Chinese body measures ~104 "words". Owner config, untouched.
+
+## Running it through the interactive console (ticket #69)
+
+The console is the acceptance surface for this card. The documented procedure:
+
+```bash
+cd /Users/chenjinshen/Downloads/Prediction/Omnidroids
+./Omnidroids.sh                 # asks "CLI or browser?" → CLI
+#   → the console starts, adopts the launcher's backend (never signaled)
+#   → "new run" → document: ../武汉大学品牌声誉深度分析报告.pdf
+#   → requirement: 如果武汉大学发布了对肖某某处分的撤销公告，大众舆情走向会怎么样
+#   → steps 1-5 run with the live per-step board
+#   → step 5: ask the five questions below, one at a time
+```
+
+The five step-5 questions, in order (big model, `POST /api/report/chat`):
+
+1. 谁的影响最大？
+2. 结果是什么？
+3. 海外校友（#DefendWHU）与国内舆论的分歧点是什么？
+4. 图谱中连接最多的人物/机构是谁，说明了什么？
+5. 如果校方当初没有撤销处分，推演结果会有什么不同？
+
+**The acceptance rule:** a step that fails is reported with the **platform's own
+reason** — the console prints the platform's error line verbatim, never a
+generic failure message. The three failures this card already names are
+platform facts, not CLI bugs:
+
+- the simulation's agent actions do not land with `small` (§9 J) — the rounds
+  still reach 72/72;
+- the report's `failed` flag is the #53 word-band mis-measuring CJK prose;
+- the agent-interview half of step 5 refuses while the simulation is stopped
+  (`/api/simulation/interview` needs a running simulation).
+
+### The state this card's session left behind (measured 2026-11-16)
+
+| Artifact | Id | State |
+|---|---|---|
+| simulation run state | `sim_598227d656d8` | `runner_status=stopped`, `current_round=72`, `total_rounds=72`, `progress_percent=100.0`, `total_actions_count=20` (the config's initial posts — no LLM action landed, §9 J) |
+| simulation log tail | — | the 9B's 502 (`MLX model Ornith-1.5-9B-MLX-6bit has no worker thread`) — the co-residency failure §9 J names |
+
+The `run_state.json` is what the console's session board reads for step 3's
+status: the rounds are complete, and the platform's own log is where the
+co-residency 502 is to be read.
