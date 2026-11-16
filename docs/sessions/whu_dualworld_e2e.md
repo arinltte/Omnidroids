@@ -125,3 +125,40 @@ platform facts, not CLI bugs:
 The `run_state.json` is what the console's session board reads for step 3's
 status: the rounds are complete, and the platform's own log is where the
 co-residency 502 is to be read.
+
+## The first unattended attempt (2026-11-17) — step 1 failed, the card is not accepted
+
+`OMNI_INTERFACE=cli ./Omnidroids.sh < /tmp/whu.cmd` (this card's unattended form,
+the launcher's CLI branch, console `--adopt-backend --port 5001`) started
+17:05:05Z and failed at **step 1, the ontology route**. Recorded so the next attempt
+does not re-derive it; the full evidence is `logs/backend.log` from that run, the
+runner's `scratch/omni_runs/20261116T170505Z-ad12ed/`, and the console transcript
+`/tmp/whu_acceptance.log`.
+
+**The platform's own reason, verbatim:**
+
+```
+! run error: ontology route returned HTTP 502
+LLM returned unusable JSON (finish_reason=length); retrying content generation with
+the provider's own output limit (the truncated attempt asked for 4096 tokens; a
+provider with no model-specific limit uses MLX_MAX_TOKENS=4096 instead, so if that
+is below 4096 raise MLX_MAX_TOKENS)
+[01:05:11] WARNING: mlx LFM3-1.7B-MLX-4bit prompt_tokens=17409 exceeds the
+operational cap LLM_CONTEXT_LENGTH=8192 but fits the model's 262144-token window
+(headroom 244735); raise LLM_CONTEXT_LENGTH or shorten the prompt
+[01:08:05] ERROR: LLM returned an unusable ontology response
+app.utils.llm_client.LLMResponseError: LLM returned invalid JSON (line 159, column 5)
+127.0.0.1 - - [17/Nov/2026 01:08:05] "POST /api/graph/ontology/generate HTTP/1.1" 502 -
+```
+
+and the session row the platform projected for it: `sess_d4e9eb6ee95d`,
+`status: failed`, `error: LLM returned invalid JSON (line 159, column 5)`.
+
+**The state after it:** the run's own artifacts (its session row and its project
+`proj_b32d80a141fb`) were removed through the platform's own routes —
+`DELETE /api/sessions/sess_d4e9eb6ee95d?with_project=1` — leaving the machine
+exactly as §9 L.3/L.5 describe it: one project `proj_58491d9f98a5`, one session
+`sess_984f7cef2192`, one graph `mirofish_115844ea8f7c47a4`, the 72/72 simulation
+and its report, plus the untouched historical `sim-*` / `report_*` fixtures. The
+launcher's SIGTERM stopped the backend; `:5001` is free. The console printed the
+platform's own line and exited — no generic failure message, no re-diagnosis.
