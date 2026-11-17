@@ -32,6 +32,13 @@ run for the interactive `omni` CLI (§9 K) and for any agent-driven full-pipelin
    the time config). Agent actions beyond the scripted initial posts do **not** land with
    `small` (rambles) and the run 502s with `big` co-resident — expected, not a CLI bug.
    The interview tool inside the report agent warns `模拟环境未运行` — by design.
+   **Measured 2026-11-17 (attempt 4):** the rounds **do** advance with `small`, at
+   **~12.5 min/round**, and **36 actions land** (18 twitter + 18 reddit, real LLM
+   content) before camel's own `openai.APITimeoutError` freezes the counter. The
+   "no action ever lands" claim is therefore false as stated; what is true is that
+   no run of this length can be watched by the console's **300 s** `--run-stall-seconds`
+   default, which fired at round 6/72 while the platform was still advancing (see
+   Attempt 4 below). Any acceptance run must pass a stall bound above a round's pace.
 5. **Report + chat** — the report agent writes the three graph-grounded sections on the
    big model; the final `failed` flag is the #53 band on CJK prose (whitespace-split
    counter; content is complete). The **chat works**:
@@ -97,6 +104,14 @@ EOF
 the phase budget is 4 h (the graph build measured 2 h 23 m) and the report's
 is 1 h (three sections measured 24–27 min on the big model). Do not lower
 them; a lower bound is the runner's `report_timeout`, not a platform failure.
+**Attempt 4 (2026-11-17/18) measured the build at 9 h 04 m (51 landed / 2
+skipped) and the simulation's rounds at ~12.5 min each, so a passing run needs
+all three per-run flags — `--phase-timeout 36000 --report-timeout 10800`
+**plus** `--run-stall-seconds` above a round's pace(~3600–7200)**. Omit the
+third and the runner's own stall detector ends the run at the first slow round
+while the platform is still building (attempt 4's failure, verbatim: `simulation
+sim_d413bad79015 stalled: the platform's own run state did not advance for 302s
+at round 6/72 (8%)`).
 
 **Done means:** all five questions answered by the report agent (each answer
 printed verbatim, with its tool calls), every step's board row `completed`, and
@@ -229,6 +244,60 @@ console's 4 h phase budget (calibrated on 2.7 min/chunk) fires at ~23:41Z at
   needed — per-run flags, the console's defaults untouched:
   `--phase-timeout 36000 --report-timeout 10800`, plus the compact-ontology
   `--additional-context` that carries step 1.
+
+## Attempt 4 (2026-11-17/18) — steps 1–3 completed, step 4 failed on the runner's own stall bound — **not accepted**
+
+`NEXT_SESSION_PROMPT.md` option 1, exactly: the compact-ontology
+`--additional-context` + `--phase-timeout 36000 --report-timeout 10800`
+(run `20261117T034842Z-9a41fb`, transcript `/tmp/whu_acceptance.log`). Wall
+**10 h 17 m**, `exit_code: 1`. Full record: **HANDOFF §9 L.5.5**.
+
+**The board rows, verbatim:**
+
+```
+  1 document + ontology: state=completed detail=entity_types=10 edge_types=8 text_chars=20862 duration_s=38.90
+  2 graph build: state=completed detail=chunks_landed=51 chunks_skipped=2 nodes=594 edges=978 duration_s=32649.76
+  3 environment setup: state=completed detail=stage=generating_config progress=76 duration_s=3753.80
+  4 simulation: state=failed detail=round 6/72 progress=8.3% actions=None status=stalled duration_s=589.84
+  5 report + chat: state=pending detail=-
+```
+
+* **Steps 1–3 all passed**, on the flags the owner prescribed: ontology 38.90 s;
+  the platform's own batch record 51 succeeded / 2 skipped / 0 never_run
+  (`skip_fraction: 0.0377`, 594 nodes / 978 edges, terminal
+  `task_status=completed … 图谱构建完成`) in 9 h 04 m; env setup 62.5 min,
+  `prepare_profiles_count: 155`, `prepare_status: ready`.
+* **Step 4 failed on the runner's own bound, not the platform's.** Verbatim:
+  `! run error: simulation sim_d413bad79015 stalled: the platform's own run state
+  did not advance for 302s at round 6/72 (8%)` — the console's default
+  `--run-stall-seconds 300`, which the prescribed command did not raise. The
+  platform's own `run_state.json` after the runner stopped watching reads
+  `runner_status: running`, `current_round: 12`, `progress_percent: 16.7`,
+  `error: None` — **6 → 12 rounds in the following ~75 minutes**, so the state
+  was advancing the whole time.
+* **Step 5 never ran and the five questions therefore have no report.** The
+  first `chat` returned the platform's own route error verbatim
+  (`omni chat: /api/report/chat -> HTTP 500: 'name'`); the other four returned
+  the report agent's own "no report yet" answer. No acceptance answer exists
+  from this attempt.
+* **Actions land with `small` on this document: 36** (18 twitter + 18 reddit,
+  real LLM-written content), then camel's own `openai.APITimeoutError` freezes
+  the counter — see the corrected expectation under "Expected per-step outcomes"
+  item 4.
+* Cleanup and machine state: session `sess_80e3b2adae91` + project
+  `proj_d99b6bc1c14f` deleted through the platform's own
+  `DELETE /api/sessions/<id>?with_project=1`; the orphan graph
+  `mirofish_24967d32ed884f04` and the orphan
+  `uploads/simulations/sim_d413bad79015/` removed from disk; SIGTERM only
+  (the launcher's own cleanup plus a second SIGTERM to the draining backend,
+  never escalated); one project / one session / one graph / the 72/72
+  simulation and its report; `:5001` free; Ollama clear on both sides.
+
+**Still not accepted.** The next attempt is the same command **plus**
+`--run-stall-seconds` above a round's measured pace (~12.5 min/round), e.g.
+`--run-stall-seconds 7200`. Whether to spend the ~14 h the remaining 66 rounds
+now measure — with the graph build's 9 h as the irreducibly expensive half —
+is the owner's call.
 
 ## The performance question, answered from this repo's measurements (2026-11-17)
 
