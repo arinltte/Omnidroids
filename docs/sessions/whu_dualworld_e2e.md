@@ -7,12 +7,22 @@ run for the interactive `omni` CLI (§9 K) and for any agent-driven full-pipelin
 
 - **Document**: `Prediction/武汉大学品牌声誉深度分析报告.pdf` (2 893 754 B; 20 862 chars
   extracted; 53 chunks at 500/50; the graph build landed 53/53 in 2 h 22 m 35 s on
-  2026-11-15 — the dominant pipeline cost).
+  2026-11-15 — the dominant pipeline cost). **That 2 h 22 m is one run of a stochastic
+  pipeline, not a floor**: attempt 4 (2026-11-17/18) measured **9 h 04 m** for 51/53 on
+  the same document, model and chunking. Budget above the *measured* pace, never below.
 - **Requirement**: `如果武汉大学发布了对肖某某处分的撤销公告，大众舆情走向会怎么样`
 - **Platforms**: dual-world parallel (twitter + reddit), 101 personas, 72 h / 72 rounds,
   peak hours 19–22, off-peak multiplier 0.05.
 
-## Current state (2026-11-16)
+## Current state (2026-11-18 — after attempt 4, which restored this state)
+
+**The card is NOT accepted.** Four attempts are measured (see the attempt sections
+below): the last one carried steps 1–3 and failed at step 4 on the runner's own 300 s
+stall bound while the platform was still advancing to round 12/72. The keeper set
+below stands untouched — attempt 4's own project/session/graph/simulation were
+deleted through the platform's own DELETE routes and its transcript is kept as
+`/tmp/whu_acceptance_run4_20261117_step4_stalled_round6of72.log`. Full status
+snapshot for the next session: **HANDOFF §9 L.7**.
 
 | Artifact | Id | State |
 |---|---|---|
@@ -27,7 +37,9 @@ run for the interactive `omni` CLI (§9 K) and for any agent-driven full-pipelin
 1. **Ontology** — 9 entity types, minutes.
 2. **Graph build** — 53/53 landed, 0 skipped (skip guard 0.40); ~2 h 23 m; watch the
    per-chunk landed/skipped split (`omni log --phase graph_build`).
-3. **Env setup** — 101 entities → 101 personas → config; ~38 min.
+3. **Env setup** — 101 entities → 101 personas → config; ~38 min (attempt 4 measured
+   62.5 min and 155 personas — the entity count is the graph's, not the config's 101
+   personas).
 4. **Simulation** — 72/72 rounds reach 100 % **regardless of model** (rounds advance on
    the time config). Agent actions beyond the scripted initial posts do **not** land with
    `small` (rambles) and the run 502s with `big` co-resident — expected, not a CLI bug.
@@ -59,6 +71,15 @@ run for the interactive `omni` CLI (§9 K) and for any agent-driven full-pipelin
   check `backend/data/graphiti/` for strays before suspecting the live graph.
 - The report band (`REPORT_WORD_COUNT_MIN/MAX`, 250–350) is calibrated on English; a
   complete Chinese body measures ~104 "words". Owner config, untouched.
+- **The runner's own stall bound is the trap that cost attempt 4.** The console's
+  `--run-stall-seconds` defaults to 300 s and no WHU round can advance inside it
+  (measured ~12.5 min/round), so the run ends at the first slow round with the
+  platform still building — the verbatim line is a *runner* verdict
+  (`... did not advance for 302s at round 6/72 (8%)`), never a platform failure.
+  Pass `--run-stall-seconds` above a round's pace on every WHU acceptance run.
+- The graph build's pace is per-run: 2 h 22 m / 8–10 min per chunk / 9 h 04 m are
+  all measured on this same document. Read `Graphiti 处理中... N/53 完成` on the
+  board for the real remaining time, not a budget you set in advance.
 
 ## Running it through the interactive console (ticket #69)
 
@@ -107,7 +128,7 @@ them; a lower bound is the runner's `report_timeout`, not a platform failure.
 **Attempt 4 (2026-11-17/18) measured the build at 9 h 04 m (51 landed / 2
 skipped) and the simulation's rounds at ~12.5 min each, so a passing run needs
 all three per-run flags — `--phase-timeout 36000 --report-timeout 10800`
-**plus** `--run-stall-seconds` above a round's pace(~3600–7200)**. Omit the
+**plus** `--run-stall-seconds` above a round's pace (≈3600–7200). Omit the
 third and the runner's own stall detector ends the run at the first slow round
 while the platform is still building (attempt 4's failure, verbatim: `simulation
 sim_d413bad79015 stalled: the platform's own run state did not advance for 302s
@@ -124,8 +145,12 @@ reason** — the console prints the platform's error line verbatim, never a
 generic failure message. The three failures this card already names are
 platform facts, not CLI bugs:
 
-- the simulation's agent actions do not land with `small` (§9 J) — the rounds
-  still reach 72/72;
+- the simulation's agent actions land with `small` (`36` measured on attempt 4:
+  18 twitter + 18 reddit, real LLM content) and then camel's own
+  `openai.APITimeoutError` freezes the counter — the rounds still advance on the
+  time config, at the measured ~12.5 min/round, so the round wall time is the
+  simulation's cost, not the model's (§9 J's "no action ever lands" is superseded
+  by attempt 4's measurement);
 - the report's `failed` flag is the #53 word-band mis-measuring CJK prose;
 - the agent-interview half of step 5 refuses while the simulation is stopped
   (`/api/simulation/interview` needs a running simulation).
