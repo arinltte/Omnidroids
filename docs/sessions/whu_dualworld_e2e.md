@@ -229,3 +229,29 @@ console's 4 h phase budget (calibrated on 2.7 min/chunk) fires at ~23:41Z at
   needed — per-run flags, the console's defaults untouched:
   `--phase-timeout 36000 --report-timeout 10800`, plus the compact-ontology
   `--additional-context` that carries step 1.
+
+## The performance question, answered from this repo's measurements (2026-11-17)
+
+The owner asked whether the run can be shortened. The honest answer, from
+measurements already in the handoff:
+
+* **Graph build — the dominant cost — cannot be shortened by swapping the model.**
+  Every substitution is measured and rejected: the 9B on graphiti's prompts
+  (5/8 chunks, schema-echo skips, sparse graph — session 14); the 8-bit `small`
+  (failed the 0.40 skip guard at 32 %); MiniCPM5-2B (not a better `small`);
+  chunk 1500 (rejected). `GRAPHITI_MAX_COROUTINES` cannot help: the MLX runtime
+  serves one model on one worker thread. The floor is the same small model: the
+  best measured build is **53/53 in 2 h 22 m 35 s (2.7 min/chunk)**; this session
+  measured **8.0–9.9 min/chunk** on the same document — a 3× spread whose cause is
+  not established. Plan the budget above the *measured* pace, never below it.
+* **Simulation — agent actions do not land locally, and no knob changes that.**
+  `small` rambles instead of tool-calling, the rounds reach 72/72 on the time
+  config regardless, `big` 502s co-resident with the sim stack on this 16 GB
+  machine. A fully local agent-driven simulation is out of reach with the two
+  keepers; the local run is scripted-initial-posts + time-driven rounds.
+* **Total at the measured floor: ~4 h 15 m – 5 h** (ontology minutes · build 2 h 23 m
+  · env setup ~38 min · simulation ~36–54 min · report ~27 min). Anything longer is
+  the build's per-run variance, not the pipeline.
+
+The retro that followed is recorded in HANDOFF §9 L.6, and the next session's
+instructions are `NEXT_SESSION_PROMPT.md`.
