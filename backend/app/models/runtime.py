@@ -59,6 +59,9 @@ class GenResult:
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     model: Optional[str] = None
+    #: OpenAI-shaped tool calls split out of the model's text-form call
+    #: (``[{"type": "function", "id": ..., "function": {"name", "arguments"}}]``)
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +175,8 @@ class _BaseRunner:
         temperature: float = 0.0,
         response_format: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
     ) -> GenResult:  # pragma: no cover - abstract
         raise NotImplementedError
 
@@ -226,6 +231,66 @@ def _model_tokenizer(processor) -> Any:
     """The tokenizer object mlx_vlm's own generation path tokenizes with."""
 
     return getattr(processor, "tokenizer", None) or processor
+
+
+# ---------------------------------------------------------------------------
+# Tool calling (the /v1 proxy is the only seam every MiroFish/OASIS client
+# speaks, so it has to speak OpenAI tool-calling too)
+# ---------------------------------------------------------------------------
+TOOL_CHOICE_STRINGS = {"none", "auto", "required"}
+
+
+def _as_plain_dict(value: Any) -> Optional[Dict[str, Any]]:
+    """A pydantic/dict tool schema as a plain dict, or None."""
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        try:
+            value = value.model_dump(exclude_none=True)
+        except Exception:
+            return None
+    return value if isinstance(value, dict) else None
+
+
+def normalize_tools(tools: Any) -> List[Dict[str, Any]]:
+    """The request's tool list as a list of plain dicts (never trust the wire)."""
+    if not tools:
+        return []
+    if not isinstance(tools, (list, tuple)):
+        return []
+    out = []
+    for tool in tools:
+        plain = _as_plain_dict(tool)
+        if plain:
+            out.append(plain)
+    return out
+
+
+def normalize_tool_choice(tool_choice: Any) -> Optional[Any]:
+    """Validate ``tool_choice`` without importing a web framework's exception.
+
+    ``mlx_vlm.tools._prepare_chat_tool_choice`` raises ``fastapi.HTTPException``
+    for a bad value, and this app is Flask: importing that exception type here
+    would couple the runtime to FastAPI. The accepted vocabulary is the OpenAI
+    one, so it is checked here and anything else is refused with a plain error.
+    """
+    if tool_choice is None:
+        return None
+    if isinstance(tool_choice, str):
+        if tool_choice in TOOL_CHOICE_STRINGS:
+            return tool_choice
+        raise ValueError(
+            f"invalid tool_choice {tool_choice!r}: expected one of "
+            f"{sorted(TOOL_CHOICE_STRINGS)} or a specific function"
+        )
+    plain = _as_plain_dict(tool_choice)
+    if not plain or plain.get("type") != "function":
+        raise ValueError("invalid tool_choice: expected {'type': 'function', ...}")
+    function = _as_plain_dict(plain.get("function"))
+    name = function.get("name") if function else None
+    if not isinstance(name, str) or not name:
+        raise ValueError("invalid tool_choice: a named function is required")
+    return plain
 
 
 def _count_tokens(tokenizer, text: str) -> Optional[int]:
@@ -283,6 +348,13 @@ class MLXRunner(_BaseRunner):
         super().__init__(name, path)
         self._model = None
         self._processor = None
+        # The tool-call parser mlx-vlm infers from this checkpoint's chat
+        # template (LFM3's template resolves to the qwen3_coder parser, whose
+        # markers are the qwen-style open/close tags). Resolved once at
+        # load: the template belongs to the weights, so re-inferring per call
+        # would only re-read the same file.
+        self._tool_parser_name: Optional[str] = None
+        self._tool_module = None
         # ONE dedicated worker thread per loaded model, created by load() and
         # kept for the runner's lifetime. MLX's GPU streams are thread local
         # and mlx_vlm.generate mutates shared model state (the KV cache), so
@@ -325,21 +397,57 @@ class MLXRunner(_BaseRunner):
         )
         try:
             self._model, self._processor = self._executor.submit(_load).result()
+            self._resolve_tool_parser()
         except Exception:
             self._executor.shutdown(wait=True)
             self._executor = None
             raise
         self._loaded = True
+        if self._tool_parser_name:
+            logger.info("mlx %s tool-call parser: %s", self.name,
+                        self._tool_parser_name)
         logger.info(
             "mlx loaded %s (rss=%dMB)", self.name, self.memory_footprint_mb()
         )
 
+    def _resolve_tool_parser(self) -> None:
+        """Infer the checkpoint's tool-call parser, or leave it None.
+
+        Runs on the model's worker thread (load calls it there) so the imports
+        happen on the same thread that later generates. A template with no
+        matching parser is the normal case for a non-tool model: the runner
+        then behaves exactly as before, and the proxy's ``tools`` are simply not
+        actionable for that model.
+        """
+        try:
+            from mlx_vlm.tools import _infer_tool_parser_from_processor
+            name = _infer_tool_parser_from_processor(self._processor)
+            if not name:
+                return
+            from mlx_vlm.tools import load_tool_module
+            self._tool_module = load_tool_module(name)
+            self._tool_parser_name = name
+        except Exception as exc:
+            logger.debug("mlx %s: no tool-call parser (%s)", self.name, exc)
+            self._tool_module = None
+            self._tool_parser_name = None
+
     async def generate(
         self, *, messages, max_tokens=None, temperature=0.0,
-        response_format=None, model=None,
+        response_format=None, model=None, tools=None, tool_choice=None,
     ) -> GenResult:
         if not self._loaded:
             raise RuntimeError(f"MLX model {self.name} not loaded")
+
+        tool_schemas = normalize_tools(tools)
+        choice = normalize_tool_choice(tool_choice)
+        if tool_choice and not tool_schemas:
+            # "auto"/"required" mean nothing with no tool to call, and a named
+            # choice that does not exist would send the model looking for a
+            # function it cannot see.
+            choice = None
+        if choice == "none":
+            tool_schemas, choice = [], None
 
         def _gen() -> GenResult:
             import mlx_vlm
@@ -348,9 +456,17 @@ class MLXRunner(_BaseRunner):
             # (mlx_vlm/chat.py passes self.history the same way). Text-only path:
             # image/audio/video stay None.
             try:
+                template_kwargs: Dict[str, Any] = {}
+                if tool_schemas:
+                    # The model must SEE the action space to call one of it.
+                    # LFM3's template renders a <tools> block from this kwarg;
+                    # without it the agent prompt's "perform actions by tool
+                    # calling" has nothing to name, which is exactly why the
+                    # uncapped calls rambled.
+                    template_kwargs["tools"] = tool_schemas
                 prompt = mlx_vlm.apply_chat_template(
                     self._processor, self._model.config, messages,
-                    add_generation_prompt=True,
+                    add_generation_prompt=True, **template_kwargs,
                 )
             except Exception:
                 # Fallback: naive role-tagged prompt.
@@ -363,6 +479,18 @@ class MLXRunner(_BaseRunner):
                 # The caller's explicit budget: forwarded verbatim, which is
                 # what the ontology call used to lose (#51).
                 effective_max_tokens = int(max_tokens)
+                kwargs["max_tokens"] = effective_max_tokens
+            elif tool_schemas:
+                # A tool-calling caller that named no budget: the agent-chatter
+                # shape (camel/OASIS sends tools and no max_tokens). An agent
+                # action is a few hundred tokens, so it gets its own budget
+                # rather than the JSON-extraction one -- measured on the WHU
+                # acceptance run: with no cap the 1.7B spent 74 % of the
+                # simulation's LLM window in 78 calls >= 30 s each, 3 of them
+                # burning 2500-4096 tokens on prose that never became an action
+                # (scratch/agentprobe_base_bcd_*.json). Graphiti is unaffected:
+                # it passes GRAPHITI_LLM_MAX_TOKENS explicitly.
+                effective_max_tokens = int(Config.AGENT_LLM_MAX_TOKENS)
                 kwargs["max_tokens"] = effective_max_tokens
             else:
                 # No cap from the caller. mlx_vlm.generate applies its OWN
@@ -445,12 +573,30 @@ class MLXRunner(_BaseRunner):
             finish = result.finish_reason or (
                 "length" if effective_max_tokens is not None else "stop"
             )
+            text = (getattr(result, "text", "") or "").strip()
+            tool_calls: Optional[List[Dict[str, Any]]] = None
+            if tool_schemas and self._tool_module is not None:
+                # The model writes the call in its own text form; mlx-vlm's
+                # extractor slices it out and hands back OpenAI-shaped calls,
+                # which is the only thing camel's OpenAIModel will execute.
+                # Without this the proxy answered a tool-calling client with
+                # prose and no tool_calls, so no agent action ever ran.
+                try:
+                    from mlx_vlm.tools import process_tool_calls
+                    parsed = process_tool_calls(text, self._tool_module, tool_schemas)
+                    text = (parsed.remaining_text or "").strip()
+                    tool_calls = parsed.calls or None
+                except Exception as exc:
+                    logger.warning(
+                        "mlx %s: tool-call extraction failed (%s); returning the "
+                        "model's text unchanged", self.name, exc)
             return GenResult(
-                content=(getattr(result, "text", "") or "").strip(),
+                content=text,
                 finish_reason=finish,
                 prompt_tokens=result.prompt_tokens or None,
                 completion_tokens=result.generation_tokens or None,
                 model=self.name,
+                tool_calls=tool_calls,
             )
 
         if not self._executor:
@@ -592,7 +738,7 @@ class GGUFRunner(_BaseRunner):
 
     async def generate(
         self, *, messages, max_tokens=None, temperature=0.0,
-        response_format=None, model=None,
+        response_format=None, model=None, tools=None, tool_choice=None,
     ) -> GenResult:
         if not self._loaded:
             raise RuntimeError(f"GGUF model {self.name} not loaded")
@@ -604,6 +750,21 @@ class GGUFRunner(_BaseRunner):
         }
         if max_tokens and max_tokens > 0:
             body["max_tokens"] = int(max_tokens)
+        elif tools:
+            # Same agent-chatter budget rule as the MLX runner: a tool-calling
+            # caller that named no cap gets the small one.
+            body["max_tokens"] = int(Config.AGENT_LLM_MAX_TOKENS)
+        tool_schemas = normalize_tools(tools)
+        choice = normalize_tool_choice(tool_choice)
+        if tool_choice and not tool_schemas:
+            choice = None
+        if choice == "none":
+            tool_schemas, choice = [], None
+        if tool_schemas:
+            # llama-server is OpenAI-compatible: the tools ride the request.
+            body["tools"] = tool_schemas
+            if choice:
+                body["tool_choice"] = choice
         # NOTE: response_format is intentionally NOT forwarded for gguf — the
         # router applies prompt-level strict JSON + a repair parser (§4.2).
         data = json.dumps(body).encode("utf-8")
@@ -617,14 +778,15 @@ class GGUFRunner(_BaseRunner):
         except urllib.error.HTTPError as exc:  # pragma: no cover
             detail = exc.read().decode("utf-8", "replace")
             raise RuntimeError(f"llama-server HTTP {exc.code}: {detail[:300]}") from exc
-        choice = (payload.get("choices") or [{}])[0]
+        choice_msg = (payload.get("choices") or [{}])[0].get("message") or {}
         usage = payload.get("usage") or {}
         return GenResult(
-            content=((choice.get("message") or {}).get("content") or "").strip(),
-            finish_reason=choice.get("finish_reason"),
+            content=(choice_msg.get("content") or "").strip(),
+            finish_reason=(payload.get("choices") or [{}])[0].get("finish_reason"),
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             model=self.name,
+            tool_calls=choice_msg.get("tool_calls") or None,
         )
 
     async def unload(self) -> None:
@@ -673,4 +835,5 @@ def make_runner(name: str, *, path: str, backend: Optional[str]) -> _BaseRunner:
 __all__ = [
     "GenResult", "detect_backend", "make_runner",
     "MLXRunner", "GGUFRunner",
+    "normalize_tools", "normalize_tool_choice",
 ]

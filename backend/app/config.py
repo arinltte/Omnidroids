@@ -80,6 +80,24 @@ class Config:
     # A caller that wants a different budget passes its own (see
     # ONTOLOGY_LLM_MAX_TOKENS for the step-1 prepare call).
     MLX_MAX_TOKENS = int(os.environ.get('MLX_MAX_TOKENS', '4096'))
+    # Output budget for a tool-calling caller that named none — the agent
+    # chatter shape (camel/OASIS sends `tools` and no max_tokens). An agent
+    # action is a few hundred tokens, so it must not inherit the JSON-extraction
+    # budget: measured on the WHU acceptance run (20261117T034842Z-9a41fb) the
+    # uncapped 1.7B spent 74% of the simulation's LLM-serving window in 78 calls
+    # >= 30 s each, three of them burning 2500-4096 completion tokens on prose
+    # that never became an action (scratch/agentprobe_base_bcd_*.json). Graphiti
+    # is unaffected — it passes GRAPHITI_LLM_MAX_TOKENS explicitly.
+    AGENT_LLM_MAX_TOKENS = int(os.environ.get('AGENT_LLM_MAX_TOKENS', '512'))
+    # Whether the /v1 proxy speaks OpenAI tool-calling to the local runners.
+    # On (default): the caller's `tools` reach the model, the model's text-form
+    # call is split back out as `tool_calls`, and a tool-calling caller that
+    # named no budget gets AGENT_LLM_MAX_TOKENS. Off restores the old behaviour
+    # exactly (tools dropped, prose answer, MLX_MAX_TOKENS budget) — the
+    # rollback switch and the A/B switch in one.
+    AGENT_LLM_TOOLS = os.environ.get('AGENT_LLM_TOOLS', '1').strip().lower() not in {
+        '0', 'false', 'no', 'off', ''
+    }
     # 单次本地 LLM 调用的超时（秒）。长 prefill 冷启动需要余量；须小于前端上限(1800s)
     LLM_PROXY_TIMEOUT = int(os.environ.get('LLM_PROXY_TIMEOUT', '1800'))
     

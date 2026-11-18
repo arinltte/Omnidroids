@@ -38,6 +38,15 @@ def _openai_response(result, model: str) -> Dict[str, Any]:
         pt = int(result.prompt_tokens or 0)
         ct = int(result.completion_tokens or 0)
         usage = {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": pt + ct}
+    message: Dict[str, Any] = {
+        "role": "assistant", "content": result.content or "",
+    }
+    finish_reason = result.finish_reason or "stop"
+    if result.tool_calls:
+        # A tool-calling client (camel/OASIS) executes these and nothing else:
+        # answering with prose and no tool_calls is why no agent action ever ran.
+        message["tool_calls"] = result.tool_calls
+        finish_reason = "tool_calls"
     return {
         "id": f"chatcmpl-{int(time.time()*1000)}",
         "object": "chat.completion",
@@ -45,8 +54,8 @@ def _openai_response(result, model: str) -> Dict[str, Any]:
         "model": model,
         "choices": [{
             "index": 0,
-            "message": {"role": "assistant", "content": result.content or ""},
-            "finish_reason": result.finish_reason or "stop",
+            "message": message,
+            "finish_reason": finish_reason,
         }],
         "usage": usage,
     }
@@ -61,6 +70,12 @@ def chat_completions():
     temperature = body.get("temperature", 0.7) or 0.0
     response_format = body.get("response_format")
     stream = bool(body.get("stream"))
+    # Tool-calling (the OASIS agent's action channel): camel sends OpenAI
+    # `tools` and executes `message.tool_calls`, so the proxy has to carry both
+    # in and out. Dropping them made every agent call a prose answer that camel
+    # could not turn into an action.
+    tools = body.get("tools") if Config.AGENT_LLM_TOOLS else None
+    tool_choice = body.get("tool_choice") if Config.AGENT_LLM_TOOLS else None
     started = time.time()
 
     effort = llm_metrics.effective_reasoning_effort(Config.LLM_REASONING_EFFORT)
@@ -75,6 +90,8 @@ def chat_completions():
             temperature=temperature,
             response_format=response_format,
             slot=slot,
+            tools=tools,
+            tool_choice=tool_choice,
         )
     except ModelError as exc:
         elapsed = time.time() - started
@@ -128,10 +145,20 @@ def chat_completions():
                                                         "content": result.content or ""},
                                  "finish_reason": None}]}
             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+            if result.tool_calls:
+                tool_chunk = {"id": payload["id"],
+                              "object": "chat.completion.chunk",
+                              "created": payload["created"],
+                              "model": payload["model"],
+                              "choices": [{"index": 0,
+                                           "delta": {"tool_calls": result.tool_calls},
+                                           "finish_reason": None}]}
+                yield f"data: {json.dumps(tool_chunk, ensure_ascii=False)}\n\n"
             tail = {"id": payload["id"], "object": "chat.completion.chunk",
                     "created": payload["created"], "model": payload["model"],
-                    "choices": [{"index": 0, "delta": {}, "finish_reason":
-                                 result.finish_reason or "stop"}]}
+                    "choices": [{"index": 0, "delta": {},
+                                 "finish_reason":
+                                 payload["choices"][0]["finish_reason"]}]}
             yield f"data: {json.dumps(tail, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
         return Response(_sse(), content_type="text/event-stream")
