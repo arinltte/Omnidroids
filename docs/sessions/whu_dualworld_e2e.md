@@ -41,9 +41,15 @@ snapshot for the next session: **HANDOFF §9 L.7**.
    62.5 min and 155 personas — the entity count is the graph's, not the config's 101
    personas).
 4. **Simulation** — 72/72 rounds reach 100 % **regardless of model** (rounds advance on
-   the time config). Agent actions beyond the scripted initial posts do **not** land with
-   `small` (rambles) and the run 502s with `big` co-resident — expected, not a CLI bug.
-   The interview tool inside the report agent warns `模拟环境未运行` — by design.
+   the time config). **RETIRED 2026-11-18 (`5e94cb6`, §9 L.8):** the claim "agent
+   actions beyond the scripted initial posts do not land with `small`" is false, and
+   the cause was this repo's, not the model's — the `/v1` proxy dropped camel's
+   `tools`, so no agent action could ever be executed. Measured after the fix, on
+   the identical 3-peak-round scenario: **0 → 9 LLM-written actions** (each persona
+   writing in its own voice), 285.1 s → 129.9 s. Attempt 4's 36 actions were the old
+   path's ceiling; the action counter froze at camel's own 180 s `MODEL_TIMEOUT`
+   while a round's calls queue on one MLX worker thread, not at a model failure.
+   `big` co-resident still 502s — expected, not a CLI bug.
    **Measured 2026-11-17 (attempt 4):** the rounds **do** advance with `small`, at
    **~12.5 min/round**, and **36 actions land** (18 twitter + 18 reddit, real LLM
    content) before camel's own `openai.APITimeoutError` freezes the counter. The
@@ -51,6 +57,9 @@ snapshot for the next session: **HANDOFF §9 L.7**.
    no run of this length can be watched by the console's **300 s** `--run-stall-seconds`
    default, which fired at round 6/72 while the platform was still advancing (see
    Attempt 4 below). Any acceptance run must pass a stall bound above a round's pace.
+   **As of `5e94cb6` the stall bound is pace-derived** (`max(floor, 2.5 × the run's
+   own longest inter-advance gap)`, capped 7 200 s) and the floor is
+   `--run-stall-seconds`; carry **7200**.
 5. **Report + chat** — the report agent writes the three graph-grounded sections on the
    big model; the final `failed` flag is the #53 band on CJK prose (whitespace-split
    counter; content is complete). The **chat works**:
@@ -150,10 +159,15 @@ platform facts, not CLI bugs:
   `openai.APITimeoutError` freezes the counter — the rounds still advance on the
   time config, at the measured ~12.5 min/round, so the round wall time is the
   simulation's cost, not the model's (§9 J's "no action ever lands" is superseded
-  by attempt 4's measurement);
+  by attempt 4's measurement). **Fixed at `5e94cb6`:** the proxy now carries
+  `tools`/`tool_calls`, and `MODEL_TIMEOUT=1800` must be exported before the
+  launcher starts (the console adopts the backend and cannot set its env);
 - the report's `failed` flag is the #53 word-band mis-measuring CJK prose;
-- the agent-interview half of step 5 refuses while the simulation is stopped
-  (`/api/simulation/interview` needs a running simulation).
+- the agent-interview half of step 5 (`/api/simulation/interview`) needs a live
+  simulation environment. **Changed at `5e94cb6`:** a run that finishes its rounds
+  now publishes its terminal status **and keeps its child alive for interviews**
+  (`COMPLETED_GRACE_S` = 60 s, `_interview_processes`), so a *completed* run's
+  interviews work; only a run that was explicitly **stopped** loses them.
 
 ### The state this card's session left behind (measured 2026-11-16)
 
@@ -349,3 +363,38 @@ measurements already in the handoff:
 
 The retro that followed is recorded in HANDOFF §9 L.6, and the next session's
 instructions are `NEXT_SESSION_PROMPT.md`.
+
+## Attempt 5 (not yet run) — what changed in the code, and the command
+
+Branch `feat/69-omni-interactive-console` @ `5e94cb6` (§9 L.8). Nothing about the
+pipeline's semantics changed; four things that stopped this card from ever
+reaching step 5 were fixed:
+
+- the `/v1` proxy dropped camel's `tools`, so no agent action could execute (now
+  carried in and `tool_calls` mapped out);
+- agent calls inherited graphiti's 4 096-token output budget (`AGENT_LLM_MAX_TOKENS=512`);
+- camel's per-request `MODEL_TIMEOUT` defaulted to 180 s while a round's calls
+  queue on one MLX worker thread (`omni run --model-timeout` now 1800; export
+  `MODEL_TIMEOUT=1800` for the launcher's child);
+- the runner's 300 s stall bound could not see a 12.5-minute round (now
+  pace-derived, floor `--run-stall-seconds`);
+- the monitor published its terminal status only on process exit, which never
+  came — step 5 was therefore unreachable even after 72/72 (now
+  `COMPLETED_GRACE_S` = 60 s, child kept alive for interviews).
+
+The command (attempt 4's, plus the measured flags):
+
+```bash
+MODEL_TIMEOUT=1800 \
+OMNI_CONSOLE_ARGS='--additional-context <compact ontology> --phase-timeout 36000 \
+--report-timeout 10800 --run-stall-seconds 7200' \
+OMNI_INTERFACE=cli nohup ./Omnidroids.sh < /tmp/whu.cmd
+```
+
+**Evaluate step 5 first, cheaply** — `sim_598227d656d8` is 72/72 with a
+three-section report on disk, and the reader commands need no run at all:
+`scratch/omni report sim_598227d656d8`, then the five `scratch/omni chat
+sim_598227d656d8 <question>` above. This costs minutes on the `big` model and
+answers whether step 5's five questions get real, graph-grounded local answers,
+before any multi-hour run is spent. `omni continue sim_598227d656d8 --no-restart
+--force-regenerate-report` re-writes that report against the current graph.
