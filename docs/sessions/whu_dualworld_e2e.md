@@ -364,37 +364,39 @@ measurements already in the handoff:
 The retro that followed is recorded in HANDOFF §9 L.6, and the next session's
 instructions are `NEXT_SESSION_PROMPT.md`.
 
-## Attempt 5 (not yet run) — what changed in the code, and the command
+## Attempt 5 (2026-11-18/19) — **MEASURED: ran end to end; the watched step-2 bound failed, the platform completed everything anyway; step 5 answered 5/5**
 
-Branch `feat/69-omni-interactive-console` @ `5e94cb6` (§9 L.8). Nothing about the
-pipeline's semantics changed; four things that stopped this card from ever
-reaching step 5 were fixed:
+Branch `feat/69-omni-interactive-console` @ `5e94cb6` (§9 L.8). The full record is
+**HANDOFF §9 L.10**; this section carries the card-side facts.
 
-- the `/v1` proxy dropped camel's `tools`, so no agent action could execute (now
-  carried in and `tool_calls` mapped out);
-- agent calls inherited graphiti's 4 096-token output budget (`AGENT_LLM_MAX_TOKENS=512`);
-- camel's per-request `MODEL_TIMEOUT` defaulted to 180 s while a round's calls
-  queue on one MLX worker thread (`omni run --model-timeout` now 1800; export
-  `MODEL_TIMEOUT=1800` for the launcher's child);
-- the runner's 300 s stall bound could not see a 12.5-minute round (now
-  pace-derived, floor `--run-stall-seconds`);
-- the monitor published its terminal status only on process exit, which never
-  came — step 5 was therefore unreachable even after 72/72 (now
-  `COMPLETED_GRACE_S` = 60 s, child kept alive for interviews).
-
-The command (attempt 4's, plus the measured flags):
+**The command, exactly as run** (the `<compact ontology>` placeholder is now the
+literal string — do not retype it, it carries no spaces):
 
 ```bash
 MODEL_TIMEOUT=1800 \
-OMNI_CONSOLE_ARGS='--additional-context <compact ontology> --phase-timeout 36000 \
---report-timeout 10800 --run-stall-seconds 7200' \
+OMNI_CONSOLE_ARGS='--additional-context 请输出紧凑本体：每个实体类型最多1个属性，不要examples字段，关系类型固定为6个（如WORKS_FOR、COMMENTS_ON、SUPPORTS、OPPOSES、REPORTS_ON、AFFILIATED_WITH），analysis_summary用一两句话概括。 --phase-timeout 36000 --report-timeout 10800 --run-stall-seconds 7200' \
 OMNI_INTERFACE=cli nohup ./Omnidroids.sh < /tmp/whu.cmd
 ```
 
-**Evaluate step 5 first, cheaply** — `sim_598227d656d8` is 72/72 with a
-three-section report on disk, and the reader commands need no run at all:
-`scratch/omni report sim_598227d656d8`, then the five `scratch/omni chat
-sim_598227d656d8 <question>` above. This costs minutes on the `big` model and
-answers whether step 5's five questions get real, graph-grounded local answers,
-before any multi-hour run is spent. `omni continue sim_598227d656d8 --no-restart
---force-regenerate-report` re-writes that report against the current graph.
+**The measured board** (the platform's own numbers; the runner's verdicts verbatim):
+
+| Step | Verdict | Measured |
+|---|---|---|
+| 1 document + ontology | completed | 135.1 s, `entity_types=10 edge_types=9`, text 20862 chars |
+| 2 graph build | **failed — the runner's own 36000 s bound**, verbatim: `graph build ab24923c-15c9-4235-8f7a-259f34e28ccb did not reach a terminal state within 36000s` (platform at 49/53) | the platform **completed on its own: 53/53 landed, 0 skipped, 624 nodes / 1105 edges**, graph `mirofish_dc45666f908a47c6` (10 h 23 m at a 2.7–13.5 min/chunk pace) |
+| 3 environment setup | (drove via the platform's own routes — the console cannot resume an interrupted session) | ~60 min, 163 personas, `ready` |
+| 4 simulation | (same) | **`completed`, 72/72 rounds, both platforms 72/72, 497 actions** (twitter 382 + reddit 115), `error: null`; 9 h 49 m |
+| 5 report + chat | (same) | 3 failed attempts (Metal OOM ×2, 9B eviction ×1) then **written** — 3 sections + 17.6 KB, `failed` **only** by the #53 CJK band (`Report body is 100 words, outside the configured band 250-350`); **the five questions answered 5/5**, verbatim in `scratch/whu_phase2_evidence/q1..q5.txt`, each citing this run's own graph/report content, on `Ornith-1.5-9B-MLX-6bit` (73/92/103/66/88 s) |
+| interview | (same) | **verified on the completed-not-stopped run for the first time** — HTTP 200, 105.9 s, in-persona answer citing the run's own facts |
+
+**Settled by this attempt:** the action ceiling is **497, not 36** — the
+`5e94cb6` tool-calling seam works end to end (`max_tokens=512` in the runtime log);
+a 72-round dual-world run is ~10 h; the report's co-residency ceiling needs the
+sim child released (the platform's own stop, which preserves the run's result);
+and the cheap step-5 check (L.9's reader commands) reads right — the Q3 chat defect
+it found (`KeyError: 'name'`, empty `success: true`) is **latent, not fixed**.
+
+**Not recorded accepted:** the watched row 2 carries the runner's own bound, and
+steps 3–5 ran outside the console. A watched pass needs `--phase-timeout` above
+this document's slow-end build (≥43200) and a console resume path (#69). The five
+verbatim answers and the interview evidence are the acceptance payload.

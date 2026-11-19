@@ -187,6 +187,43 @@ roles (small/big). Models load for a phase and are **hard-unloaded when it ends*
 RSS before/after is logged as proof. Example repos: `LiquidAI/LFM3-1.7B-MLX-8bit`,
 `LiquidAI/LFM3-1.7B-MLX-4bit`, `ornith-ai/Ornith-1.5-9B-MLX-8bit`.
 
+## End-to-end acceptance proof (2026-11-18/19) — measured, fully local
+
+The full pipeline — document → knowledge graph → agent personas → dual-world
+multi-agent simulation → report → interactive Q&A — **has run end to end on this
+repo's own Apple Silicon machine with no cloud service of any kind**: 53/53 chunks
+extracted (0 skipped, 624 nodes / 1105 edges), 163 personas, a 72-round
+twitter+reddit simulation reaching 100 % with **497 LLM-written agent actions**,
+a three-section graph-grounded report, and five Q&A answers grounded in that
+run's own entities and numbers (plus a working per-agent `interview` on the
+completed run).
+
+**Time taken (measured, one acceptance run; the graph build is stochastic, so the
+same document has measured 2 h 22 m on its best day and 10 h 23 m here):**
+
+| Phase | Measured |
+|---|---|
+| 1 ontology | 2.3 min |
+| 2 graph build (53 chunks, `small`) | 2 h 22 m – 10 h 23 m across runs (per-run variance; ~2.7–13.5 min/chunk) |
+| 3 environment setup (163 personas, `small`) | ~60 min |
+| 4 simulation (72 rounds × 2 platforms, `small`) | ~9 h 49 m (2.2–13.5 min/round) |
+| 5 report (3 sections, `big`) | ~69 min (after 3 failed attempts — see below) |
+| 5 chat (5 questions, `big`) | 66–103 s per answer |
+| **total, this run** | **~22–25 h** |
+
+**This is a proof of concept that a fully local multi-agent prediction pipeline is
+possible — not a fast one.** Every phase is bounded by this machine's hardware
+specification, not by the architecture: one 16 GB unified-memory budget shared by
+two models that serve on a single MLX worker thread (so phases serialize and the
+report phase's 9B-model peak co-residency with its own graph tools hit the memory
+ceiling and needed retries before completing), a stochastic per-chunk local
+extraction whose pace varies ~5× run to run, and a `small` local model whose agent
+actions land but decode slowly. Larger unified memory, more worker threads, or a
+faster local model moves every number above; nothing in the design assumes cloud
+capacity. The full measured record — every platform reason verbatim, the five
+answers, the evidence bundle — is in `HANDOFF.md` §9 L.10 and
+`docs/sessions/whu_dualworld_e2e.md` (Attempt 5).
+
 ## Hard constraints
 
 - **Never `kill -9` the backend** (Kuzu needs a clean close or the next open can
