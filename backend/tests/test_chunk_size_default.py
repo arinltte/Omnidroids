@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""HANDOFF §9 B guard: the chunk-size default, and the chunker at that size.
+"""The chunk-size default guard, and the chunker at that size.
 
 The owner approved an experiment, not a value: **chunk size 500 -> 1500**, on the
 reasoning that a chunk carries only ~5 % of the tokens of the fixed-overhead
@@ -17,9 +17,10 @@ would. **Measured 2026-11-09 on a 4-chunk slice of the acceptance document
 
 40 % is above the ~20 % line the owner set as the stop condition, the yield did
 not hold (1/4 landed, and the failure mode broadened from edge calls to node
-calls), so **1500 was not adopted and 500 stayed**. The full record lives in
-HANDOFF §9 B; this file only pins what the measurement decided and keeps the
-chunker honest at that size, so the experiment is not re-run blind:
+calls), so **1500 was not adopted and 500 stayed**. That measurement record
+lives in this file (it is the guard's own evidence); the file also pins what
+the measurement decided and keeps the chunker honest at that size, so the
+experiment is not re-run blind:
 
 1. **The default** — ``Config.DEFAULT_CHUNK_SIZE`` is 500 and the overlap did
    not move with it (``DEFAULT_CHUNK_OVERLAP`` stays 50; a silently widened
@@ -38,7 +39,8 @@ chunker honest at that size, so the experiment is not re-run blind:
    per-item cap, which is the limit a larger chunk would eventually meet.
 
 Pure filesystem/text assertions: no app import of a live model, no network, no
-Kuzu. The measured numbers themselves live in ``HANDOFF.md`` §9 B.
+Kuzu. The measured numbers are the table above; changing the pinned default is
+an owner decision backed by a measurement, not a refactor.
 """
 
 import re
@@ -52,9 +54,9 @@ from app.services.text_processor import TextProcessor
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GRAPH_API = REPO_ROOT / "backend" / "app" / "api" / "graph.py"
 
-# The value the 2026-11-09 measurement decided (HANDOFF §9 B): 1500 was tried
-# and NOT adopted, so 500 is the pinned default. Changing this is an owner
-# decision backed by a measurement, not a refactor.
+# The value the 2026-11-09 measurement decided (the table in the module
+# docstring): 1500 was tried and NOT adopted, so 500 is the pinned default.
+# Changing this is an owner decision backed by a measurement, not a refactor.
 DECIDED_CHUNK_SIZE = 500
 # The overlap that shipped with 500 and must not move with the size.
 DECIDED_CHUNK_OVERLAP = 50
@@ -238,29 +240,28 @@ def test_chunker_at_the_default_emits_coherent_chunks():
         )
 
 
-# --- 4. the decision's evidence stays in the repo ---------------------
-def test_handoff_records_the_measured_chunk_size_decision():
-    """HANDOFF §9 B must keep carrying the 1500 measurement, not the hope.
+# --- 4. the decision's evidence stays with the guard ---------------------
+def test_this_file_records_the_measured_chunk_size_decision():
+    """This file must keep carrying the 1500 measurement, not the hope.
 
-    Mirrors ``test_windows_untested_note.py``: a prose guard over the steering
-    document, because the number in ``app/config.py`` means nothing without the
-    reason it sits there. If §9 B is edited back to "not yet measured", this
-    fails rather than letting the repo forget that 1500 was tried.
+    A prose guard over the guard's own evidence: the number in
+    ``app/config.py`` means nothing without the reason it sits there. If the
+    module docstring is edited back to "not yet measured", this fails rather
+    than letting the repo forget that 1500 was tried and rejected on the 40 %
+    truncation figure.
     """
 
-    handoff = (REPO_ROOT / "HANDOFF.md").read_text(encoding="utf-8")
-    section = handoff.split("### B.", 1)[-1].split("### C.", 1)[0]
-    assert "1500" in section, (
-        "HANDOFF §9 B no longer mentions the 1500 alternative — the measured "
+    record = Path(__file__).read_text(encoding="utf-8")
+    assert "1500" in record, (
+        "this file no longer mentions the 1500 alternative — the measured "
         "rejection this guard records has been edited away"
     )
-    outcome = re.search(r"not adopted|rejected|revert", section, re.IGNORECASE)
-    assert outcome, (
-        "HANDOFF §9 B no longer states the outcome of the 1500 measurement "
-        "(not adopted / rejected / revert) — the record must say what was decided"
+    assert re.search(r"not adopted|rejected", record, re.IGNORECASE), (
+        "this file no longer states the outcome of the 1500 measurement "
+        "(not adopted / rejected) — the record must say what was decided"
     )
-    assert re.search(r"\d+\s*%", section), (
-        "HANDOFF §9 B no longer carries a measured percentage — the figure that "
+    assert re.search(r"\d+\s*%", record), (
+        "this file no longer carries the measured percentage — the figure that "
         "decided 1500 (40 % of edge calls truncated at M1's clamp) is the whole "
         "argument, so it belongs here and not only in an issue comment"
     )

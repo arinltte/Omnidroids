@@ -68,8 +68,14 @@ trap 'cleanup; exit 0' INT TERM
 echo "=============================================================="
 info "项目目录: $PROJECT_DIR"
 
+# macOS 专用启动器（MLX 推理后端只支持 Apple Silicon）；Windows 见 Omnidroids.bat
+if [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
+  warn "当前不是 macOS：本脚本面向 Apple Silicon（MLX 本地模型）。"
+  warn "Windows 请使用 Omnidroids.bat（GGUF 路径，未经真机验证）。"
+fi
+
 # ---------------- 1) 依赖（缺失才安装）----------------
-info "1/4 依赖检查（缺失才安装）…"
+info "1/5 依赖检查（缺失才安装）…"
 if [ ! -d "$BACKEND_DIR/.venv" ]; then
   info "安装后端依赖 (uv sync)…"
   ( cd "$BACKEND_DIR" && uv sync ) || err "后端依赖安装失败"
@@ -80,7 +86,7 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
 fi
 
 # ---------------- 2) 构建 SPA（仅当缺失；用户拿到的是已构建包）----------------
-info "2/4 检查 SPA 构建产物 (frontend/dist)…"
+info "2/5 检查 SPA 构建产物 (frontend/dist)…"
 if [ ! -f "$FRONTEND_DIR/dist/index.html" ]; then
   info "frontend/dist 缺失 —— 构建一次 (npm run build)…"
   ( cd "$FRONTEND_DIR" && npm run build ) || err "前端构建失败"
@@ -92,8 +98,23 @@ fi
 export HF_HOME="$PROJECT_DIR/.cache/hf"
 info "HF_HOME=$HF_HOME"
 
-# ---------------- 4) 启动后端（单进程，同时服务 API + SPA）----------------
-info "3/4 启动后端(:5001, 托管 SPA)…"
+# ---------------- 4) 首次运行自举：.env 与本地模型（缺失才生成/下载）----------------
+info "3/5 检查运行环境（.env 与本地模型，缺失才准备）…"
+if [ ! -f "$PROJECT_DIR/.env" ]; then
+  cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
+  ok ".env 已生成（来自 .env.example）"
+fi
+# 模型自检：两个角色模型（small/big）缺权重时自动从 HuggingFace 下载并写回
+# models/registry.json，并预取本地 embedding 模型。首次运行需要等待下载。
+if [ -x "$BACKEND_DIR/.venv/bin/python" ]; then
+  "$BACKEND_DIR/.venv/bin/python" "$PROJECT_DIR/scripts/ensure_models.py" --provision \
+    || err "模型准备失败——请检查网络后重试（所有产物只下载到本文件夹内）"
+else
+  warn "backend/.venv 不存在，跳过模型自检（依赖检查应已安装）"
+fi
+
+# ---------------- 5) 启动后端（单进程，同时服务 API + SPA）----------------
+info "4/5 启动后端(:5001, 托管 SPA)…"
 if port_busy 5001; then
   warn ":5001 已被占用，跳过启动（假设已在运行）。"
 else

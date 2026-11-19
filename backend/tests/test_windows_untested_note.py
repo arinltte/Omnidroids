@@ -3,8 +3,8 @@
 
 The Windows GGUF path (``Omnidroids.bat``) has never been executed on a Windows
 box, so ticket #27 records it as documented-"untested" rather than "tested". That
-note lives in ``README.md`` and ``HANDOFF.md`` and is the honest ceiling on what we
-claim about Windows. This scan keeps it from rotting back into a "verified" claim:
+note lives in ``README.md`` and is the honest ceiling on what we claim about
+Windows (the internal handoff that once carried a second copy is not published). This scan keeps it from rotting back into a "verified" claim:
 
 1. **Marker** — both docs carry an explicit untested-on-Windows marker. If either
    note is deleted, or reworded to read as if the path were verified, this fails.
@@ -23,7 +23,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 README = REPO_ROOT / "README.md"
-HANDOFF = REPO_ROOT / "HANDOFF.md"
 
 # The explicit phrase #27 requires both docs to carry. Case-insensitive; the note's
 # heading ("untested on Windows hardware") and its body both use it.
@@ -79,12 +78,6 @@ def test_readme_carries_untested_on_windows_marker():
     assert UNTESTED_MARKER.search(README.read_text(encoding="utf-8")), (
         "README.md no longer states that the Windows GGUF path is untested (#27) — "
         "the honest ceiling on what we claim about Windows has been dropped"
-    )
-
-
-def test_handoff_carries_untested_on_windows_marker():
-    assert UNTESTED_MARKER.search(HANDOFF.read_text(encoding="utf-8")), (
-        "HANDOFF.md no longer states that the Windows GGUF path is untested (#27)"
     )
 
 

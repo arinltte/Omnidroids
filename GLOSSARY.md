@@ -5,7 +5,7 @@ report, handoff note and ticket means the same thing by the same word. Extending
 file is part of any change that invents a concept; silently using a second word for an
 existing one is a defect.
 
-## The measurement vocabulary (HANDOFF §9 G, docs/GOLD_STANDARD.md)
+## The measurement vocabulary (docs/GOLD_STANDARD.md)
 
 **Gold**:
 The frozen annotation of what a correct extraction of the frozen slice looks like: which

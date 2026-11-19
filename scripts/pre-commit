@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# The repo's pre-commit gate (HANDOFF §9 P1) — deterministic, local, no network.
+# The repo's pre-commit gate — deterministic, local, no network.
 #
 # It runs, in order:
-#   1. the documented project gate — the backend test suite (§2: the suite *is*
-#      the gate; `cd backend && .venv/bin/python -m pytest tests/ -q`);
+#   1. the documented project gate — the backend test suite (the suite *is* the
+#      gate; `cd backend && .venv/bin/python -m pytest tests/ -q`);
 #   2. `python -m compileall -q app run.py` — the syntax-damage check;
 #   3. `ruff` — over backend/app on the damage rule set configured in
 #      backend/pyproject.toml ([tool.ruff.lint] select: E9/E722/F821/F823/F811),
@@ -13,11 +13,11 @@
 #      exceptions);
 #   4. the scoped pylint missing-member check —
 #      `python -m pylint --disable=all --enable=E1101 backend/app`.
-#   5. when frontend sources are staged, `npm run build` (§2's UI gate).
+#   5. when frontend sources are staged, `npm run build` (the UI gate).
 #
 # What is deliberately NOT here: `mem_check.py` / `bigmodel_eval.py`. They are
-# measurement harnesses that load model weights for minutes each; they stay the
-# pre-push gate (HANDOFF §2), not a per-commit one.
+# measurement harnesses (in the git-ignored `scratch/` area) that load model
+# weights for minutes each; they stay a pre-push gate, not a per-commit one.
 #
 # The gates are scoped to the staged file set: a commit touching nothing under
 # backend/ runs no backend gate, one touching nothing under frontend/src runs no

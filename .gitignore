@@ -35,3 +35,7 @@ NEXT_SESSION_PROMPT*
 
 # OASIS runtime logging (module-level setup writes ./log on import; test-run byproduct)
 log/
+
+# Internal session-management docs — deliberately not published.
+HANDOFF.md
+AGENTS.md
