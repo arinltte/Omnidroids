@@ -6,7 +6,7 @@ below. This file records the obligations that follow from using them.
 | Component | License | Used for | Notes |
 |---|---|---|---|
 | MiroFish | AGPL-3.0 | Application base (backend services, Vue frontend, OASIS simulation wiring) | Derivative works must remain AGPL-3.0 with source availability (including over a network). |
-| Graphiti | Apache-2.0 | Entity/edge extraction, graph memory | Vendored copy in the reference workspace; interim graph backend (see `HANDOFF.md` §3.2 bake-off). |
+| Graphiti | Apache-2.0 | Entity/edge extraction, graph memory | Vendored copy in the reference workspace; interim graph backend (bake-off recorded in `docs/GRAPH_BAKEOFF.md`). |
 | Kuzu | MIT | Embedded graph store | Bundled as a Python dependency. |
 | Cognee | Apache-2.0 | **Evaluation candidate** graph-memory backend | Referenced during the phase-3 bake-off; becomes a declared dependency only if it wins. |
 | Semantica | MIT | **Evaluation candidate** graph-memory backend | Same evaluation status as Cognee. |

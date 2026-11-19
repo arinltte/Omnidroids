@@ -36,6 +36,7 @@ import asyncio
 import atexit
 import hashlib
 import json
+import re
 import signal
 import shutil
 import threading
@@ -350,6 +351,101 @@ class _TruncatedJSONError(Exception):
     def __init__(self, message):
         super().__init__(message)
         self.message = message
+
+
+class _SchemaEchoError(Exception):
+    """Deterministic JSON-Schema echo - retrying is futile (companion to M3).
+
+    The model answered ``Respond with a JSON object in the following format:`` by
+    repeating the SCHEMA it was shown instead of filling it, so the body is valid
+    JSON but IS the schema, not extraction data. This is exactly how the
+    2026-11-10 9B run skipped chunks 2/4/6 (ExtractedEdges, SummarizedEntities) -
+    graphiti then failed ``ExtractedEdges(**body)`` with a generic ``Field
+    required`` "wrong-keys" error that hid the real failure class.
+
+    A detected echo is a payload graphiti would reject anyway (its required
+    top-level field is absent), so relabelling it can only make an
+    already-guaranteed chunk skip more precise -- it never turns a success into a
+    failure and never changes graph content. It falls OUTSIDE graphiti's
+    tenacity-retried set (``is_server_or_retry_error``), so -- like
+    ``_TruncatedJSONError`` -- a reproducible echo fails fast instead of burning
+    the retry chain, and M2's ``_ingest_record`` skips the chunk once.
+    """
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+
+def _required_top_level(response_model) -> set:
+    """Graphiti's REQUIRED top-level field names for a response model.
+
+    Cheap (reads ``model_fields``, not ``model_json_schema``): the set a payload
+    must carry to be a populated extraction result rather than a schema stub,
+    e.g. ``ExtractedEdges`` -> ``{"edges"}``, ``SummarizedEntities`` ->
+    ``{"summaries"}`` (a field with a default is not required, so it is not in
+    the set)."""
+
+    fields = getattr(response_model, "model_fields", None)
+    if not fields:
+        return set()
+    return {name for name, info in fields.items() if info.is_required()}
+
+
+# The container-only keys of a JSON-Schema document. A payload whose TOP-LEVEL
+# keys are drawn from this set (and not from graphiti's required fields) is the
+# schema being echoed, not data. Deliberately NOT the JSON-TYPE words that a
+# populated element would carry, so an extraction result that merely OMITS an
+# optional field (valid_at/invalid_at) is never misread as an echo -- that is a
+# #1909 completeness concern handled by pydantic defaulting, not an echo.
+_SCHEMA_CONTAINER_MARKERS = frozenset(
+    {
+        "$defs",
+        "$ref",
+        "$schema",
+        "properties",
+        "type",
+        "title",
+        "required",
+        "additionalProperties",
+        "definitions",
+        "anyOf",
+        "allOf",
+        "oneOf",
+        "items",
+    }
+)
+
+
+def _looks_like_schema_echo(payload, response_model) -> bool:
+    """True when a parsed body is the JSON Schema echoed back, not data.
+
+    Conservative by construction so it NEVER mislabels a body graphiti could
+    have used:
+
+    * a non-dict payload, or a model with no required fields, is never an echo;
+    * a payload that carries ANY of graphiti's REQUIRED top-level fields as a
+      SIBLING key is NOT an echo -- at worst a wrong-keys / inner-shape defect
+      the alias net and pydantic still own (e.g. ``{"entities": [...]}``);
+    * only when NO required field sits at the top level AND the container still
+      looks like a schema document (a ``$defs``/``properties``/``type`` marker)
+      does this fire -- e.g. the 9B run's ``{"$defs": {"Edge": {...}}}``.
+
+    Required fields are read from ``model_fields`` (top level only); a property
+    NAME nested under ``properties`` is deliberately not consulted, so a full
+    schema echo whose top-level ``properties`` happens to include the field name
+    is still caught.
+    """
+
+    if not isinstance(payload, dict):
+        return False
+    required = _required_top_level(response_model)
+    if not required:
+        return False
+    top = set(payload)
+    if top & required:
+        return False
+    return bool(top & _SCHEMA_CONTAINER_MARKERS)
 
 
 # ---------------------------------------------------------------------------
@@ -896,6 +992,136 @@ def _normalize_to_schema(payload, response_model, messages):
     return normalized if changed else payload
 
 
+def _try_salvage_rebuild(text: str, start: int, array_open: int, elements: str):
+    """Rebuild a single-array payload from an element slice, or None.
+
+    ``elements`` is the verbatim slice between element boundaries. A candidate
+    is accepted only when the rebuilt string actually parses and the lone
+    top-level key maps to a list of objects -- the scanner alone can be fooled
+    by a defect body whose quotes balance out later, so every candidate is
+    validated by parsing, not by structure.
+    """
+    try:
+        payload = json.loads(text[start:array_open] + "[" + elements + "]}")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or len(payload) != 1:
+        return None
+    (key, value), = payload.items()
+    if not isinstance(value, list) or not value:
+        return None
+    if not all(isinstance(e, dict) for e in value):
+        return None
+    return (payload, len(value))
+
+
+def _salvage_truncated_json(text: str, allow_empty: bool = False):
+    """Bounded salvage of an unparseable extraction body (HANDOFF section 9 G.1 arms 2-5).
+
+    A 1.7B response regularly dies mid-payload: at the M1 clamp
+    (``finish_reason="length"`` -- chunk 6 of the frozen slice, cut at char
+    10037 after 367 lines of COMPLETE edge objects); as a stop-finished
+    generation defect (an unescaped quote inside a value, e.g. the confirmation
+    repeat's chunk 6 at char 1863); or as a KEY the model dropped entirely (the
+    edgedesc repeat's chunk 6: ``{"id": 0, "name": "...", -1}`` -- a bare value
+    where the property name belongs). In every case the pre-arm seam lost the
+    whole chunk even though the calls before it had already succeeded. This
+    recovers the model's OWN finished elements so the chunk keeps its work.
+
+    Contract (deliberately conservative -- this function never invents content):
+
+    * it only rebuilds the single-array shape every extraction response model
+      uses; a body with no root object, no array value, or a second top-level
+      array, recovers nothing;
+    * every candidate is validated by PARSING, because a defect body's later
+      text can balance out and fool a pure structural scan;
+    * the longest element slice wins; when a corrupt EARLY element makes every
+      from-element-0 rebuild unparsable, the salvage retries from later element
+      boundaries and DROPS the corrupt early elements (arm 5) -- the count
+      returns as ``dropped_early`` so no report can hide it;
+    * a body with no recoverable element returns an empty list ONLY when the
+      caller passes ``allow_empty`` (the clamp is certified by ``finish_reason``);
+    * a defect body (``finish_reason="stop"``) with no recoverable element
+      returns ``None`` -- the caller's retry path is preserved.
+
+    Returns ``(payload, kept_elements, cut_index, empty, dropped_early)`` or
+    ``None``.
+    """
+    if not text:
+        return None
+    start = text.find("{")
+    if start < 0:
+        return None
+    key_match = None
+    array_open = -1
+    bounds: List[int] = []  # [0] = just after '[', then after each element
+    depth = 0
+    in_string = False
+    escape = False
+    i = start
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+                if depth == 2:
+                    bounds.append(i + 1)  # a scalar-string element ended
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            depth += 1
+            if depth == 2 and ch == "[":
+                if array_open >= 0:
+                    break  # a second top-level array: not our shape, stop here
+                array_open = i
+                key_match = re.match(r'\s*\{\s*"([^"]+)"\s*:\s*$', text[start:array_open])
+                if key_match is None:
+                    return None
+                bounds.append(i + 1)
+        elif ch in "}]":
+            if depth == 3 and ch == "}":
+                bounds.append(i + 1)  # an object element closed
+            depth -= 1
+            if depth == 0:
+                break  # the root object closed: body was complete
+            if depth < 0:
+                break
+        i += 1
+    if array_open < 0 or key_match is None:
+        return None
+    # No complete element anywhere: only the certified-clamp caller accepts an
+    # empty answer (the chunk keeps its other calls); a defect still returns
+    # None so the retry path owns it.
+    if len(bounds) < 2:
+        if not allow_empty:
+            return None
+        return ({key_match.group(1): []}, 0, bounds[0], True, 0)
+    # Longest slice from the earliest boundary first; only a corrupt early
+    # element pushes the start boundary later (each attempt drops exactly the
+    # elements before it, and the payload reports how many).
+    for start_idx in range(len(bounds) - 1):
+        for end_idx in range(len(bounds) - 1, start_idx, -1):
+            elements = text[bounds[start_idx]:bounds[end_idx]]
+            if start_idx:
+                elements = elements.lstrip()
+                if elements.startswith(","):
+                    elements = elements[1:].lstrip()
+            candidate = _try_salvage_rebuild(text, start, array_open, elements)
+            if candidate is not None:
+                payload, kept = candidate
+                return (payload, kept, bounds[end_idx], False, start_idx)
+    if not allow_empty:
+        return None
+    return ({key_match.group(1): []}, 0, bounds[0], True, 0)
+
+
 def _build_llm_client():
     from openai import AsyncOpenAI
 
@@ -990,11 +1216,32 @@ def _build_llm_client():
                 # JSONDecodeError; surface a clear error instead.
                 if not result:
                     raise EmptyResponseError("LLM returned an empty response")
+                parsed = json.loads(self._strip_code_fences(result))
+                if _looks_like_schema_echo(parsed, response_model):
+                    # Schema echo: the body IS the schema, not extraction data
+                    # (the 9B run's ExtractedEdges/SummarizedEntities skips).
+                    # Relabel + fail fast instead of surfacing as a generic
+                    # "Field required" wrong-keys skip that hides the class.
+                    logger.warning(
+                        "graphiti LLM response [schema-echo]: model returned the "
+                        "JSON Schema, not extraction data; response_model=%s "
+                        "finish_reason=%s body=%.400s",
+                        getattr(response_model, "__name__", response_model),
+                        finish_reason,
+                        result,
+                    )
+                    raise _SchemaEchoError(
+                        f"schema echo: model returned the JSON Schema for "
+                        f"{getattr(response_model, '__name__', response_model)} "
+                        f"instead of extraction data (not retried)"
+                    )
                 return _normalize_to_schema(
-                    json.loads(self._strip_code_fences(result)),
+                    parsed,
                     response_model,
                     messages,
                 )
+            except _SchemaEchoError:
+                raise
             except openai.RateLimitError as e:
                 raise RateLimitError from e
             except json.JSONDecodeError as exc:
@@ -1006,9 +1253,78 @@ def _build_llm_client():
                 # (unescaped quote, wrong keys, …), not a truncation: mislabelling
                 # it wastes the measurement, so let it propagate and be retried.
                 if finish_reason is None or finish_reason == "length":
+                    # Bounded salvage (§9 G.1 arm 2): a certified clamp
+                    # truncation still carries the elements the model finished.
+                    # Recover the longest complete prefix instead of losing the
+                    # whole chunk; nothing is invented, and an echo-shaped
+                    # salvage still fails fast below.
+                    salvage = _salvage_truncated_json(
+                        self._strip_code_fences(result),
+                        allow_empty=True,
+                    )
+                    if salvage is not None:
+                        payload, kept, cut, empty, dropped = salvage
+                        logger.warning(
+                            "graphiti LLM response [salvaged-prefix]: model=%s "
+                            "kept_elements=%d empty=%s dropped_early=%d "
+                            "cut_bytes=%d body_bytes=%d finish_reason=%s",
+                            getattr(response_model, "__name__", response_model),
+                            kept,
+                            empty,
+                            dropped,
+                            cut,
+                            len(result),
+                            finish_reason,
+                        )
+                        if _looks_like_schema_echo(payload, response_model):
+                            raise _SchemaEchoError(
+                                f"schema echo: model returned the JSON Schema for "
+                                f"{getattr(response_model, '__name__', response_model)} "
+                                f"inside a truncated body (not retried)"
+                            )
+                        return _normalize_to_schema(
+                            payload,
+                            response_model,
+                            messages,
+                        )
                     raise _TruncatedJSONError(
                         f"truncated/unparseable JSON response (not retried): {exc}"
                     ) from exc
+                if finish_reason == "stop":
+                    # §9 G.1 arm 3: a generation defect keeps its complete
+                    # elements too. The confirmation repeat showed this class is
+                    # stable across retries (the recorded-body suite pins the
+                    # mode), so five retries of a deterministic defect are pure
+                    # waste: salvage after one call and land the chunk. A body
+                    # with nothing recoverable still propagates
+                    # ``json.JSONDecodeError`` -- the retry path is preserved.
+                    salvage = _salvage_truncated_json(
+                        self._strip_code_fences(result),
+                        allow_empty=False,
+                    )
+                    if salvage is not None:
+                        payload, kept, cut, empty, dropped = salvage
+                        logger.warning(
+                            "graphiti LLM response [salvaged-defect]: model=%s "
+                            "kept_elements=%d dropped_early=%d cut_bytes=%d "
+                            "body_bytes=%d",
+                            getattr(response_model, "__name__", response_model),
+                            kept,
+                            dropped,
+                            cut,
+                            len(result),
+                        )
+                        if _looks_like_schema_echo(payload, response_model):
+                            raise _SchemaEchoError(
+                                f"schema echo: model returned the JSON Schema for "
+                                f"{getattr(response_model, '__name__', response_model)} "
+                                f"inside a defect body (not retried)"
+                            )
+                        return _normalize_to_schema(
+                            payload,
+                            response_model,
+                            messages,
+                        )
                 raise
             except Exception as e:
                 logger.error(f"Error in generating LLM response: {e}")

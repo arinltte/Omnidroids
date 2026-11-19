@@ -191,6 +191,11 @@ def test_losing_bakeoff_candidates_never_entered_app():
     and their SDKs were only ever installed in isolated bake-off venvs. This is
     the grep-able half of that: nothing under ``app/`` may name them, so a swap
     cannot arrive as an unrecorded import.
+
+    The trees were **deleted 2026-11-09** after ADR 0001 decided Graphiti
+    (``HANDOFF.md`` §8 records the restore clones), so this guard scans our own
+    source rather than the candidates' code — which is what it was always for: a
+    recorded import of a loser would have to arrive as committed code.
     """
 
     offenders = []

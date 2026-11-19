@@ -22,6 +22,9 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ..config import Config
+from ..utils.logger import get_logger
+
+logger = get_logger("omnidroids.sessions.store")
 
 # §8.1 stage ladder (process order of a prediction run)
 STAGES = ("extract", "ontology", "graph_build", "personas", "simulate", "report", "qa")
@@ -96,8 +99,11 @@ class SessionStore:
             if cls._instance is not None:
                 try:
                     cls._instance._conn.close()
-                except Exception:
-                    pass
+                except Exception as exc:  # P2: log, never swallow silently
+                    logger.warning(
+                        "session store close failed during reset: %s: %s",
+                        type(exc).__name__, exc,
+                    )
                 cls._instance = None
 
     # -- helpers -------------------------------------------------------------

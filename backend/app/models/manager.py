@@ -370,6 +370,8 @@ class ModelManager:
         temperature: float = 0.0,
         response_format: Optional[Dict[str, Any]] = None,
         slot: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
     ) -> GenResult:
         self.start()
         lm = self._run_async(self._ensure_loaded(slot, model))
@@ -386,7 +388,7 @@ class ModelManager:
             result = self._run_async(lm.runner.generate(
                 messages=eff_messages, max_tokens=max_tokens,
                 temperature=temperature, response_format=eff_response_format,
-                model=lm.name,
+                model=lm.name, tools=tools, tool_choice=tool_choice,
             ))
         except Exception as exc:
             logger.error("model %s generate failed: %s", lm.name, exc)

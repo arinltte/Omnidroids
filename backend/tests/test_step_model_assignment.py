@@ -2,10 +2,11 @@
 """Step → model assignment (owner decision, issue #22).
 
 Steps 4–5 (Report Generation, Deep Interaction — both served by ``ReportAgent``)
-resolve the ``big`` role from the Model Manager registry; steps 1–3 keep
-resolving ``Config.LLM_MODEL_NAME``. Hermetic by design: the registry is a temp
-file, the LLM client is a recorder, and nothing touches the network, a model
-weight or Kuzu.
+resolve the ``big`` role from the Model Manager registry; steps 1–3 resolve a
+model *name* through ``ModelManager._resolve``'s three-step order (name, then
+slot, then the ``small`` role — see ``test_resolve_orders_name_then_slot_then_the_small_role``).
+Hermetic by design: the registry is a temp file, the LLM client is a recorder, and nothing
+touches the network, a model weight or Kuzu.
 """
 
 import json
@@ -227,6 +228,67 @@ def test_reported_step_keys_are_documented_in_env_example():
     assert "REPORT_LLM_ROLE" in contents
     assert "REPORT_LLM_MODEL_NAME" in contents
     assert "MODEL_SMALL_ROLE" not in contents   # phantom keys do nothing
+
+
+# -- _resolve's real three-step order (finding 24) ----------------------------
+def test_resolve_orders_name_then_slot_then_the_small_role(tmp_path, monkeypatch):
+    """``ModelManager._resolve`` (app/models/manager.py:_resolve) tries the
+    requested model NAME first, the request's slot second, and the ``small``
+    role only as the unnamed-request fallback."""
+
+    from app.models.manager import ModelManager
+
+    _write_registry(tmp_path, monkeypatch, roles={"small": SMALL, "big": BIG})
+    manager = ModelManager()
+
+    # step 1 — an installed NAME wins outright, even against a slot
+    key, entry, _backend = manager._resolve(None, BIG)
+    assert key == BIG and entry["name"] == BIG
+
+    # step 2 — a slot with no name resolves the slot's role model
+    key, entry, _backend = manager._resolve("big", None)
+    assert key == "big" and entry["name"] == BIG
+
+    # step 3 — no name and no slot fall back to the small role
+    key, entry, _backend = manager._resolve(None, None)
+    assert key == "small" and entry["name"] == SMALL
+
+    # the step 1-3 hazard in miniature: a request naming an installed model
+    # reaches THAT model, not what the small role now points at — which is why
+    # Config.LLM_MODEL_NAME must name the small role's model or a role swap
+    # is inert on steps 1-3 (finding 24)
+    key, entry, _backend = manager._resolve(None, SMALL)
+    assert key == SMALL and entry["name"] == SMALL
+
+
+def test_named_default_request_lands_on_the_small_role_model():
+    """Finding 24: the live steps 1-3 invariant, on the real registry.
+
+    Steps 1-3 carry ``Config.LLM_MODEL_NAME`` as the request name, so they serve
+    ``roles.small``'s model only while that config value names that same model
+    (or is empty/uninstalled). The owner's swap put ``roles.small`` on the 8-bit
+    and emptied ``.env``'s ``LLM_MODEL_NAME`` (decision 2026-11-09) so the name no
+    longer shadows the role — resolution falls through to step 3 and steps 1-3
+    serve the 8-bit. This test is the standing guard: if a future ``.env`` or a
+    code change makes ``_resolve`` bypass an unnamed request away from the
+    ``small`` role again, this fails.
+
+    ``models/`` is git-ignored: a clean checkout has no local registry and
+    nothing local to assert, so the test skips there.
+    """
+
+    registry_path = Path(Config.MODELS_REGISTRY_PATH)
+    if not registry_path.exists():
+        pytest.skip("no local models/registry.json (git-ignored): nothing to check")
+
+    from app.models.manager import ModelManager
+
+    manager = ModelManager()
+    small = manager.store.model_for_role("small")
+    assert small is not None, "roles.small is assigned to no installed model"
+
+    _key, entry, _backend = manager._resolve(None, Config.LLM_MODEL_NAME)
+    assert entry["name"] == small
 
 
 # -- steps 1–3 keep resolving exactly as they do today ----------------------

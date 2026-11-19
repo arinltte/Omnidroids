@@ -3,141 +3,106 @@
 A personal, **fully local** multi-agent prediction platform. Ingest a document,
 build a local knowledge graph, generate agent personas, run a local multi-agent
 simulation, and produce a report with interactive Q&A — **entirely on your own
-machine. No cloud services**.
+machine. No cloud services, no API keys.**
 
-> **Status: Phases 0–6 built out — functional end-to-end on macOS (MLX).** Model
-> runtime with hard unload, Model Manager, sessions main page with resume, local
-> Graphiti/Kuzu graph, local embeddings, launcher + single-process SPA serving,
-> light/dark appearance. Remaining items are tracked as GitHub issues (see
-> [`HANDOFF.md`](./HANDOFF.md) §6). AGPL-3.0 derivative of `MiroFish`; see
-> [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) for licensing.
+> **Based on MiroFish: Omnidroids is a derivative work of MiroFish** (AGPL-3.0,
+> © MiroFish contributors) — a re-homed, modified fork that carries the upstream
+> reliability work forward. See *Credit & license* below.
 
-## License / Attribution
+## What it does
 
-Omnidroids is a derivative work of **MiroFish** and is therefore distributed under
-the **GNU Affero General Public License v3.0** — see [`LICENSE`](./LICENSE).
+Five steps, one pipeline, all local:
 
-- **Upstream base:** MiroFish (AGPL-3.0, © MiroFish contributors). Omnidroids is a
-  re-homed, modified fork; files copied from MiroFish keep their notices, and new
-  files carry `SPDX-License-Identifier: AGPL-3.0-or-later`.
-- Graphiti — Apache-2.0 · Kuzu — MIT · MLX / mlx-lm — MIT · llama.cpp — MIT ·
-  huggingface_hub — Apache-2.0 · Flask — BSD-3-Clause · Vue — MIT.
-- Full table + candidate licenses: [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
+1. **Document + ontology** — upload a document (PDF/text); a small local model
+   extracts an entity/relation ontology for your domain.
+2. **Knowledge graph** — the document is chunked and ingested into a local
+   **Graphiti + Kuzu** graph with local embeddings.
+3. **Agent personas** — the graph's entities become simulated agents with
+   personas, driven by a generated simulation config.
+4. **Multi-agent simulation** — the agents act, post, and react across
+   simulated Twitter and Reddit worlds; the graph remembers the run.
+5. **Report + Q&A** — a large local model writes a graph-grounded report, and
+   answers questions about the simulation — citing the run's own entities,
+   numbers and events, not generic prose.
+
+You can drive all of it from the browser UI, or from the built-in interactive
+console (`omni`), which also answers questions about a finished run and
+interviews individual agents.
+
+## Run it — one click
+
+```bash
+./Omnidroids.sh          # macOS: double-click works (right-click -> Open if blocked)
+```
+
+On Windows: double-click `Omnidroids.bat` — **untested on Windows** (see
+*Requirements*).
+
+The launcher does everything for you — **you just wait**:
+
+1. installs backend/frontend dependencies if missing (`uv sync`, `npm install`);
+2. builds the web UI if missing;
+3. creates `.env` from `.env.example` if missing;
+4. **checks the local models** — if the two role models (a small one for the
+   graph/persona phases, a large one for the report/Q&A phases) or the local
+   embedding model are missing, it downloads them from HuggingFace into the
+   project folder and wires them up — a one-time wait on first run
+   (~8.5 GB total);
+5. starts the platform at <http://localhost:5001> (the backend serves both the
+   API and the UI — no other process to run).
+
+Stop it with `Ctrl+C` (or close the window) — **SIGTERM only**, never
+`kill -9` (the embedded graph store needs a clean close).
+
+## Requirements
+
+- **macOS on Apple Silicon** for the default path (models run in-process via
+  MLX). ~16 GB unified memory recommended; ~15 GB disk for the models.
+- **Windows** (`Omnidroids.bat`, GGUF runtime) is designed for but **untested on
+  Windows** — it has never been executed on a Windows machine here, so treat it
+  as unverified.
+- No GPU server, no Ollama, no cloud endpoint. Everything — inference,
+  embeddings, graph store — runs in the one backend process.
+
+## What a full run costs (measured on a 16 GB Mac)
+
+**This is a proof of concept that a fully local multi-agent prediction pipeline
+works — not a fast one.** Every phase is bounded by consumer hardware: one
+memory budget shared by two models, a single model worker thread (phases
+serialize), and stochastic per-chunk local extraction. Measured end to end on
+the bundled acceptance document (53 chunks, 72 simulated hours across two
+platforms):
+
+| Phase | Measured |
+|---|---|
+| ontology | ~2 min |
+| knowledge graph (53 chunks) | 2 h 20 min – 10 h 20 min (varies per run) |
+| agent personas | ~1 h |
+| simulation (72 rounds × 2 platforms) | ~10 h, ~500 LLM-written agent actions |
+| report (3 sections) | ~1 h |
+| Q&A (per question) | ~1–2 min |
+
+**A complete run is a ~22–25 hour batch job** on this class of machine — plan
+it as an overnight run. Faster hardware (more unified memory, more worker
+threads, faster local models) moves every number; nothing in the design assumes
+cloud capacity. The first run additionally waits for the one-time model
+downloads.
+
+## Credit & license
+
+Omnidroids is a derivative work of **MiroFish** and is distributed under the
+**GNU Affero General Public License v3.0** — see [`LICENSE`](./LICENSE):
+
+- **Upstream base:** MiroFish (AGPL-3.0, © MiroFish contributors). Files derived
+  from MiroFish keep their notices; new files carry
+  `SPDX-License-Identifier: AGPL-3.0-or-later`.
+- Third-party components: Graphiti (Apache-2.0) · Kuzu (MIT) · MLX / mlx-lm
+  (MIT) · llama.cpp (MIT) · huggingface_hub (Apache-2.0) · Flask (BSD-3-Clause) ·
+  Vue (MIT) — full table in
+  [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
 
 If you publish or serve this software, AGPL-3.0 obligations apply (provide the
 corresponding source, including over a network).
 
-## Architecture
-
-- **Backend** — Python 3.11 + Flask. One process serves the API *and* the built
-  frontend SPA.
-- **Graph memory** — **Graphiti** (Apache-2.0) + embedded **Kuzu** store, behind a
-  Zep-compatible client seam (`backend/app/utils/graphiti_zep.py`). Cognee and
-  Semantica are evaluated as alternatives in a bake-off (`HANDOFF.md` §3.2).
-- **Model runtime** — models load on demand and are **hard-unloaded from memory
-  when each task finishes** (a binding requirement). Backends: **MLX** (macOS,
-  in-process via `mlx-vlm`) and **llama.cpp GGUF** (cross-platform incl. Windows).
-  One internal OpenAI-compatible `/v1` surface everything points at. (The legacy
-  Ollama path was removed in B5 — nothing in the runtime depends on it.)
-- **Two models, one 16 GB device** — a small model for parallel work (ingestion,
-  personas); a larger model for report synthesis and Q&A (sequential phases,
-  RAM-budget guarded, unloaded after each phase).
-- **Models** — HuggingFace repo ids are downloaded into `Omnidroids/models/` only
-  (`HF_HOME` is redirected into the folder); weights are **never** committed.
-- **Sessions** — SQLite-backed project history; interrupted runs resume from
-  per-chunk checkpoints. The session list is the main page.
-
-## Intentionally kept from the validated reference
-
-- **Reliability fixes M1/M2/M3** (validated on a 53-chunk build, 5–6 chunks
-  skipped, 0 errors): the `max_tokens` leaf-clamp (`_CappedLLMClient`),
-  truncation fail-fast (`_TruncatedJSONError`), and per-chunk fault isolation
-  (`_ingest_record` skips a bad chunk instead of aborting the whole batch) plus
-  `SKIP_THRESHOLD`. **Do not relax these.**
-- **`OASIS_DEFAULT_MAX_ROUNDS=6`** unless explicitly changed.
-- **Reasoning is OFF by default.** With the local 1.7B model, thinking ON is 4–6×
-  slower and hurts per-agent action validity; OFF keeps JSON valid and agent
-  actions usable (`LLM_REASONING_EFFORT=none`, live-toggleable in the UI).
-
-## Quick start
-
-```bash
-# 1. backend deps  (creates backend/.venv; graphiti/kuzu/psutil are declared deps)
-#    the gguf runtime works on any OS; add the mlx extra on Apple Silicon:
-cd backend
-uv sync
-uv sync --extra mlx         # macOS only: in-process MLX inference backend
-cd ..
-
-# 2. config  (no secrets; local Graphiti needs no API key)
-cp .env.example .env
-
-# 3. frontend build  (dev-time bundle; runtime is served by the backend)
-cd frontend && npm install && npm run build && cd ..
-```
-
-### Run — `./Omnidroids.sh` (macOS) / `Omnidroids.bat` (Windows)
-
-The launcher is the supported entry point (single process — the backend serves
-both the API and the built SPA at http://localhost:5001; no Node/Vite server at
-runtime):
-
-1. installs deps only when missing (`uv sync`, `npm install`);
-2. builds the SPA once if `frontend/dist` is absent (`npm run build`);
-3. exports `HF_HOME=<repo>/.cache/hf` — every HuggingFace artifact stays inside
-   the folder;
-4. starts the backend and opens **only** the main page;
-5. stops with **SIGTERM only** (`Ctrl+C`) — never `kill -9` (Kuzu WAL).
-
-```bash
-./Omnidroids.sh                    # macOS (double-click works; right-click -> Open if blocked)
-OPEN_BROWSER=0 ./Omnidroids.sh     # don't auto-open the browser
-```
-
-On Windows: double-click `Omnidroids.bat`. Stop by closing the backend window
-(or the launcher window); never `taskkill /f` the backend.
-
-Run the backend directly instead (useful for development):
-
-```bash
-cd backend && uv run python run.py     # API + built SPA on http://localhost:5001
-```
-
-## Model runtime (Phase 1)
-
-Models are swapped behind one OpenAI-compatible `/v1` endpoint and **load on
-demand / hard-unload when the task ends** (a binding requirement). Backends:
-
-- **mlx** — macOS Apple Silicon, in-process (`mlx-lm`); unload clears the Metal
-  cache so our own RSS falls.
-- **gguf** — cross-platform incl. Windows; a `llama-server` subprocess; unload is
-  a `SIGTERM` (never `kill -9`) so the whole process, and its RAM, is released.
-
-Verify the hard-unload guarantee (HANDOFF §12.3):
-
-```bash
-cd backend
-MODEL=LFM3-1.7B-MLX-4bit .venv/bin/python3 ../scratch/mem_check.py   # any registered local model
-MODEL=Ornith-1.5-9B-MLX-6bit .venv/bin/python3 ../scratch/bigmodel_eval.py
-# -> per-phase process RSS + resident-model footprint, asserting release.
-```
-
-Registered roles (git-ignored `models/registry.json`, set in the Models UI):
-`small` = `LiquidAI/LFM3-1.7B-MLX-4bit`, `big` = `ornith-ai/Ornith-1.5-9B-MLX-6bit`
-(A7 decision in GitHub issue #5; embeddings run locally via sentence-transformers —
-`Snowflake/snowflake-arctic-embed-s` 384-d, see the bake-off in `scratch/embedder_bakeoff.py`).
-
-## Model Manager (later phase)
-
-Paste a HuggingFace repo id → it downloads into `Omnidroids/models/` only → assign
-roles (small/big). Models load for a phase and are **hard-unloaded when it ends**;
-RSS before/after is logged as proof. Example repos: `LiquidAI/LFM3-1.7B-MLX-8bit`,
-`LiquidAI/LFM3-1.7B-MLX-4bit`, `ornith-ai/Ornith-1.5-9B-MLX-8bit`.
-
-## Hard constraints
-
-- **Never `kill -9` the backend** (Kuzu needs a clean close or the next open can
-  `SIGBUS`) — use `SIGTERM`.
-- Models are never installed to global home paths and never pushed to GitHub.
-- The `Prediction/MiroFish` tree is the validated reference and must stay runnable;
-  this repo is a copy that is then modified.
+Model weights are downloaded at runtime into `models/` and are **never**
+committed to this repository.

@@ -831,6 +831,32 @@ REACT_UNUSED_TOOLS_HINT = "\n💡 你还没有使用过: {unused_list}，建议�
 
 REACT_FORCE_FINAL_MSG = "已达到工具调用限制，请直接输出 Final Answer: 并生成章节内容。"
 
+# #53: the body this section just produced was a tool call, JSON or nothing — the
+# only thing the agent is never allowed to do is ship it.
+# One message per artefact class, because the regeneration is only useful if the
+# model is told the failure it ACTUALLY made: "it's a tool call" is false (and
+# actively misleading) for a body that was only JSON or only whitespace.
+REACT_REGENERATE_MSGS = {
+    "only a tool-call artefact": (
+        "【格式错误】你刚才的输出不能作为章节正文：它是一个工具调用而不是分析内容。\n"
+        "工具调用只能在检索阶段输出，且必须以 <tool_call> 标签包裹；章节正文必须是连贯的"
+        "分析文字。请只基于已获取的检索结果重新撰写本章节正文，直接输出正文内容。"
+    ),
+    "only JSON": (
+        "【格式错误】你刚才的输出不能作为章节正文：它是无法阅读的结构化数据（纯JSON）"
+        "而不是分析文字。\n章节正文必须是连贯的分析文字，请把这些信息改写成句子和段落，"
+        "不要输出 JSON。请只基于已获取的检索结果重新撰写本章节正文，直接输出正文内容。"
+    ),
+    "empty/whitespace-only": (
+        "【格式错误】你刚才的输出不能作为章节正文：它是空的（只有空白字符）。\n"
+        "请基于已获取的检索结果重新撰写本章节正文，直接输出正文内容。"
+    ),
+}
+
+# Kept for compatibility with the constant name used in the failing-path logs.
+REACT_REGENERATE_MSG = REACT_REGENERATE_MSGS["only a tool-call artefact"]
+
+
 # ── Chat prompt ──
 
 CHAT_SYSTEM_PROMPT_TEMPLATE = """\
@@ -862,6 +888,34 @@ CHAT_SYSTEM_PROMPT_TEMPLATE = """\
 - 优先给出结论，再解释原因"""
 
 CHAT_OBSERVATION_SUFFIX = "\n\n请简洁回答问题。"
+
+# ── Fail-fast guards for the report body (#53) ──
+# Both follow the _TruncatedJSONError convention in app/utils/graphiti_zep.py:
+# a deterministic, terminal error whose message names what broke and where, so
+# the report is marked FAILED with an actionable reason instead of shipping a
+# artefact or an out-of-band body.
+
+
+class SectionBodyArtefactError(Exception):
+    """A section body is only a tool call, only JSON, or empty (#53).
+
+    Measured in report #49: the whole response became the section body in
+    ``_generate_section_react``'s case 3 and in the force-final fallback,
+    ``_strip_fake_tool_results`` removes only fabricated tool *results*, and
+    ``_parse_tool_calls`` drops a call whose ``name`` is not in
+    ``VALID_TOOL_NAMES`` -- so a leaked tool call landed in the report verbatim.
+    At most one regeneration happens at the same seam first; this error means the
+    second body was the same artefact, and the section is not rendered at all.
+    """
+
+
+class ReportWordBandError(Exception):
+    """The assembled report fell outside the configured word band (#53).
+
+    The 250-350 band existed only in docs/ACCEPTANCE_12.md and the spec, so
+    report #49 shipped at 357/368 words. The message carries the measured count,
+    the band, and the sections that broke it.
+    """
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1177,6 +1231,228 @@ class ReportAgent:
         cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
         return cleaned.strip()
 
+    # ── Section-body hygiene + the word band (#53) ──
+    # Markdown scaffolding the band count drops, so a body is counted exactly the
+    # way the #34/#49 evidence counted it (``prose_words`` in
+    # scratch/report49_run.py): a CJK run without spaces is one token, which is
+    # how a Chinese report of 368 "words" reads.
+    # Character-for-character the convention the #34/#49 evidence measured with
+    # (scratch/report49_run.py `word_counts`): `re.sub(r"[#>*`\-]", " ", body)`
+    # then whitespace-split. The asterisk is load-bearing -- #49's body is full of
+    # `**bold**` spans, and without it `**word**` counts as ONE token instead of
+    # one per word, which would measure the real out-of-band report at 328 and
+    # wave it through the 250-350 gate.
+    _REPORT_WORD_SCAFFOLDING = re.compile(r"[#>*`\-]")
+
+    @staticmethod
+    def _count_report_words(text: str) -> int:
+        """Count report words the way the stated band is measured."""
+        return len(ReportAgent._REPORT_WORD_SCAFFOLDING.sub(" ", text).split())
+
+    # The three ways a whole response is not report prose (#53).
+    ARTEFACT_EMPTY = "empty/whitespace-only"
+    ARTEFACT_TOOL_CALL = "only a tool-call artefact"
+    ARTEFACT_JSON = "only JSON"
+
+    @staticmethod
+    def regenerate_message(reason: str) -> str:
+        """The regeneration instruction for the artefact class the body was.
+
+        One message per class, because a regeneration is only useful if the
+        model is told the failure it ACTUALLY made -- #53's prompt test: a body
+        that was only JSON must not be regenerated under an instruction about
+        tool calls.
+        """
+        return REACT_REGENERATE_MSGS.get(
+            reason, REACT_REGENERATE_MSGS[ReportAgent.ARTEFACT_TOOL_CALL])
+
+    @staticmethod
+    def _section_body_artefact_reason(body: str) -> Optional[str]:
+        """Why `body` can never ship as a report section — or None when it can.
+
+        Three measured ways a non-section became a section (#53): the whole
+        response is a tool call (``_parse_tool_calls`` drops a call whose name is
+        not in ``VALID_TOOL_NAMES``, and ``_strip_fake_tool_results`` strips only
+        fabricated results), the whole response is JSON, or there is nothing at
+        all. Returning the reason rather than a bool is what lets the caller
+        fail loudly naming it.
+        """
+        if not body or not body.strip():
+            return ReportAgent.ARTEFACT_EMPTY
+
+        without_calls = ReportAgent._strip_fake_tool_results(body)
+        # whole call blocks first, then one whose closing tag was cut off by the
+        # token cap, then any stray/unmatched tag of either kind
+        without_calls = re.sub(
+            r"<tool_call>\s*\{.*?\}\s*", "", without_calls, flags=re.DOTALL
+        )
+        without_calls = re.sub(r"<tool_call>\s*\{.*\}", "", without_calls, flags=re.DOTALL)
+        without_calls = re.sub(r"</?tool_(?:call|result)[^>]*>?", "", without_calls)
+        without_calls = without_calls.strip()
+
+        if not without_calls:
+            return ReportAgent.ARTEFACT_TOOL_CALL
+        if ReportAgent._is_json_text(without_calls):
+            return ReportAgent.ARTEFACT_JSON
+        return None
+
+    @staticmethod
+    def _is_json_text(text: str) -> bool:
+        """True when the text parses as one JSON document (no prose around it)."""
+        try:
+            json.loads(text)
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    @staticmethod
+    def _extract_section_body(response: str) -> str:
+        """The prose part of a response: after the last ``Final Answer:"`` marker
+        when the model used it, otherwise the response itself minus the
+        fabricated tool results. Every branch of the ReAct loop extracts a body
+        this way, so a body means one thing everywhere."""
+        cleaned = ReportAgent._strip_fake_tool_results(response)
+        if "Final Answer:" in cleaned:
+            return cleaned.split("Final Answer:")[-1].strip()
+        return cleaned.strip()
+
+    def _finalize_section_body(
+        self,
+        section: ReportSection,
+        candidate: str,
+        messages: List[Dict[str, str]],
+        tool_calls_count: int,
+    ) -> str:
+        """Guard a section body before it can reach the report (#53).
+
+        One regeneration at the same seam first — the rejected candidate goes
+        into the message history (never silently dropped) and the model is told
+        what was wrong — because an artefact is a formatting slip, not
+        necessarily a dead model. If the second body is the same artefact the
+        section fails loudly: the report is marked FAILED with the section title
+        and the reason instead of shipping the artefact. The retry is bounded at
+        one on purpose: the ReAct loop already spent its 5 iterations to get
+        here, and an unbounded retry chain is what #51 measured wasting ~980 s.
+        """
+        reason = self._section_body_artefact_reason(candidate)
+        if reason is None:
+            return candidate
+
+        logger.warning(t('report.sectionBodyArtefact', title=section.title, reason=reason))
+        if self.report_logger:
+            self.report_logger.log_error(
+                f"章节 '{section.title}' 的正文是 {reason}，已拒绝并重试一次",
+                "generating",
+                section_title=section.title,
+            )
+
+        messages.append({"role": "assistant", "content": candidate})
+        # Tell the model the failure it actually made: a body that was only JSON
+        # must not be regenerated under an instruction about tool calls (#53).
+        messages.append({"role": "user", "content": self.regenerate_message(reason)})
+        response = self.llm.chat(messages=messages, temperature=0.5, max_tokens=4096)
+
+        if response is not None:
+            regenerated = self._extract_section_body(response)
+            reason = self._section_body_artefact_reason(regenerated)
+            if reason is None:
+                logger.info(t('report.sectionRegenerated', title=section.title))
+                return regenerated
+
+        raise SectionBodyArtefactError(
+            f"Section '{section.title}' produced a body that is "
+            f"{reason or ReportAgent.ARTEFACT_EMPTY}, and the one regeneration at "
+            "the same seam was not report prose either, so the section was NOT "
+            "rendered. A body that is only a tool call, only JSON, or empty can "
+            "never ship as a section (#53): this fails the whole report — which "
+            "an operator can regenerate — instead of shipping the artefact "
+            "verbatim as section prose (the #49 defect: two sections of nothing "
+            "but a leaked tool call)."
+        )
+
+    @staticmethod
+    def check_report_word_band(
+        report_markdown: str,
+        section_word_counts: Optional[List[tuple]] = None,
+        min_words: Optional[int] = None,
+        max_words: Optional[int] = None,
+    ) -> None:
+        """Fail loudly when the assembled report is outside the word band (#53).
+
+        The 250-350 band existed only in docs/ACCEPTANCE_12.md and the spec, so
+        report #49 shipped at 357/368 words. Called where the report is assembled
+        (``generate_report``), so an out-of-band report can never be COMPLETED.
+
+        Args:
+            report_markdown: the assembled report body — what gets measured.
+            section_word_counts: [(section title, word count), ...] in report
+                order — the attribution that tells an operator WHICH section
+                broke the band, not just that something did. Optional: the band
+                verdict is the primary signal and must never be blocked by the
+                attribution data (a caller measuring a saved body — or a harness
+                — may not have the section list).
+            min_words / max_words: the band; None reads the config knob
+                (``REPORT_WORD_COUNT_MIN`` / ``REPORT_WORD_COUNT_MAX``) at call
+                time, so the check follows .env with no code change.
+        """
+        min_words = Config.REPORT_WORD_COUNT_MIN if min_words is None else min_words
+        max_words = Config.REPORT_WORD_COUNT_MAX if max_words is None else max_words
+        section_word_counts = section_word_counts or []
+
+        measured = ReportAgent._count_report_words(report_markdown)
+        if min_words <= measured <= max_words:
+            return
+
+        section_count = len(section_word_counts)
+        denominator = max(1, section_count)
+        # Every section carries its fair share of the band, so the sections
+        # outside that window are the ones to look at -- named in both
+        # directions, because #49's report was over band (357/358 words) AND
+        # carried two 25/24-word sections that were the leaked tool calls. The
+        # miss and the anomaly were different sections; an operator needs both
+        # lists to see that, not a verdict that blames whichever half the
+        # direction of the miss picked.
+        floor = min_words / denominator
+        ceiling = max_words / denominator
+        short = [
+            f"'{title}' ({count} words)"
+            for title, count in section_word_counts
+            if count < floor
+        ]
+        over = [
+            f"'{title}' ({count} words)"
+            for title, count in section_word_counts
+            if count > ceiling
+        ]
+
+        raise ReportWordBandError(
+            f"Report body is {measured} words, outside the configured band "
+            f"{min_words}-{max_words} (REPORT_WORD_COUNT_MIN / "
+            f"REPORT_WORD_COUNT_MAX). Fair share with {section_count} sections: "
+            f"{floor:.0f}-{ceiling:.0f} words each. Below it: "
+            f"{', '.join(short) or 'none'}; above it: {', '.join(over) or 'none'}. "
+            "A section below its share is the signature of a body that never "
+            "became prose (the #49 leak: two sections of nothing but a tool "
+            "call) -- the hygiene guard now rejects those earlier, so a short "
+            "section here means the report is genuinely under-written. A body "
+            "that is only a tool call, only JSON, or empty never reaches this "
+            "check."
+        )
+
+    def _assert_report_word_band(
+        self,
+        report_markdown: str,
+        sections: List[ReportSection],
+    ) -> None:
+        """Apply the band gate to the sections this agent just generated."""
+        self.check_report_word_band(
+            report_markdown,
+            [
+                (section.title, self._count_report_words(section.content))
+                for section in sections
+            ],
+        )
+
     def plan_outline(
         self, 
         progress_callback: Optional[Callable] = None
@@ -1434,7 +1710,12 @@ class ReportAgent:
                     continue
 
                 # 正常结束
-                final_answer = cleaned_response.split("Final Answer:")[-1].strip()
+                final_answer = self._finalize_section_body(
+                    section,
+                    self._extract_section_body(response),
+                    messages,
+                    tool_calls_count,
+                )
                 logger.info(t('report.sectionGenDone', title=section.title, count=tool_calls_count))
 
                 if self.report_logger:
@@ -1536,7 +1817,12 @@ class ReportAgent:
             # 工具调用已足够，LLM 输出了内容但没带 "Final Answer:" 前缀
             # 直接将这段内容作为最终答案，不再空转
             logger.info(t('report.sectionNoPrefix', title=section.title, count=tool_calls_count))
-            final_answer = cleaned_response
+            final_answer = self._finalize_section_body(
+                section,
+                self._extract_section_body(response),
+                messages,
+                tool_calls_count,
+            )
 
             if self.report_logger:
                 self.report_logger.log_section_content(
@@ -1560,11 +1846,12 @@ class ReportAgent:
         # 检查强制收尾时 LLM 返回是否为 None
         if response is None:
             logger.error(t('report.sectionForceFailed', title=section.title))
-            final_answer = t('report.sectionGenFailedContent')
-        elif "Final Answer:" in response:
-            final_answer = response.split("Final Answer:")[-1].strip()
+            candidate = t('report.sectionGenFailedContent')
         else:
-            final_answer = response
+            candidate = self._extract_section_body(response)
+        final_answer = self._finalize_section_body(
+            section, candidate, messages, tool_calls_count
+        )
         
         # 记录章节内容生成完成日志
         if self.report_logger:
@@ -1753,6 +2040,10 @@ class ReportAgent:
             
             # 使用ReportManager组装完整报告
             report.markdown_content = ReportManager.assemble_full_report(report_id, outline)
+
+            # 词汇量带检查（#53）：组装完成即校验，超纲的报告绝不能标记为 COMPLETED
+            self._assert_report_word_band(report.markdown_content, outline.sections)
+
             report.status = ReportStatus.COMPLETED
             report.completed_at = datetime.now().isoformat()
             

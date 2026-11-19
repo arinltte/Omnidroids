@@ -7,7 +7,6 @@
         <router-link to="/new" class="nav-link">{{ $t('sessions.newPrediction') }}</router-link>
         <router-link to="/models" class="nav-link">{{ $t('nav.models') }}</router-link>
         <LanguageSwitcher />
-        <AppearanceSwitcher />
       </div>
     </nav>
 
@@ -82,7 +81,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
-import AppearanceSwitcher from '../components/AppearanceSwitcher.vue'
 import i18n from '../i18n'
 import { listSessions, resumeSession, deleteSession } from '../api/sessions'
 

@@ -9,6 +9,12 @@
 #    - Finder 提示“无法打开”时：右键 -> 打开；或先执行一次:
 #        chmod +x Omnidroids.sh
 #    - 不自动开浏览器: OPEN_BROWSER=0 ./Omnidroids.sh
+#    - 界面选择: 后端就绪后询问 "CLI or browser?"
+#        CLI  → 交互式 omni 控制台(scratch/omni interactive --adopt-backend)
+#        浏览器 → 打开 SPA 主页面(既有行为)
+#        无人值守: OMNI_INTERFACE=cli|browser 直接指定, 不再询问
+#      CLI 控制台收养本脚本启动的后端: 只观察, 从不发信号 —— 进程树仍只有
+#      一棵, 停止仍只有本脚本的 SIGTERM。
 #    - 停止: 在本窗口按 Ctrl+C（仅发送 SIGTERM —— 绝不 kill -9，
 #      Kuzu WAL 在 SIGBUS 后会损坏；后端内部还会自行清理）。
 #    - 所有 HuggingFace 产物都导出到 Omnidroids/.cache/hf，绝不落入 ~/.cache。
@@ -62,8 +68,14 @@ trap 'cleanup; exit 0' INT TERM
 echo "=============================================================="
 info "项目目录: $PROJECT_DIR"
 
+# macOS 专用启动器（MLX 推理后端只支持 Apple Silicon）；Windows 见 Omnidroids.bat
+if [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
+  warn "当前不是 macOS：本脚本面向 Apple Silicon（MLX 本地模型）。"
+  warn "Windows 请使用 Omnidroids.bat（GGUF 路径，未经真机验证）。"
+fi
+
 # ---------------- 1) 依赖（缺失才安装）----------------
-info "1/4 依赖检查（缺失才安装）…"
+info "1/5 依赖检查（缺失才安装）…"
 if [ ! -d "$BACKEND_DIR/.venv" ]; then
   info "安装后端依赖 (uv sync)…"
   ( cd "$BACKEND_DIR" && uv sync ) || err "后端依赖安装失败"
@@ -74,7 +86,7 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
 fi
 
 # ---------------- 2) 构建 SPA（仅当缺失；用户拿到的是已构建包）----------------
-info "2/4 检查 SPA 构建产物 (frontend/dist)…"
+info "2/5 检查 SPA 构建产物 (frontend/dist)…"
 if [ ! -f "$FRONTEND_DIR/dist/index.html" ]; then
   info "frontend/dist 缺失 —— 构建一次 (npm run build)…"
   ( cd "$FRONTEND_DIR" && npm run build ) || err "前端构建失败"
@@ -86,8 +98,23 @@ fi
 export HF_HOME="$PROJECT_DIR/.cache/hf"
 info "HF_HOME=$HF_HOME"
 
-# ---------------- 4) 启动后端（单进程，同时服务 API + SPA）----------------
-info "3/4 启动后端(:5001, 托管 SPA)…"
+# ---------------- 4) 首次运行自举：.env 与本地模型（缺失才生成/下载）----------------
+info "3/5 检查运行环境（.env 与本地模型，缺失才准备）…"
+if [ ! -f "$PROJECT_DIR/.env" ]; then
+  cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
+  ok ".env 已生成（来自 .env.example）"
+fi
+# 模型自检：两个角色模型（small/big）缺权重时自动从 HuggingFace 下载并写回
+# models/registry.json，并预取本地 embedding 模型。首次运行需要等待下载。
+if [ -x "$BACKEND_DIR/.venv/bin/python" ]; then
+  "$BACKEND_DIR/.venv/bin/python" "$PROJECT_DIR/scripts/ensure_models.py" --provision \
+    || err "模型准备失败——请检查网络后重试（所有产物只下载到本文件夹内）"
+else
+  warn "backend/.venv 不存在，跳过模型自检（依赖检查应已安装）"
+fi
+
+# ---------------- 5) 启动后端（单进程，同时服务 API + SPA）----------------
+info "4/5 启动后端(:5001, 托管 SPA)…"
 if port_busy 5001; then
   warn ":5001 已被占用，跳过启动（假设已在运行）。"
 else
@@ -115,6 +142,52 @@ echo "   后端 API       : http://localhost:5001/api"
 echo "   本地 AI 监控    : http://localhost:5001/monitor (手动访问；第3步模拟页也有入口)"
 echo "   停止: 在本窗口按 Ctrl+C (SIGTERM，绝不 kill -9)"
 echo "=============================================================="
+
+# ---------------- 5) 界面选择: CLI 还是浏览器 (ticket #69) ----------------
+# 交互式 omni 控制台是可选的浏览器替代品: 同一个后端/同一个 DB, 两种前端。
+#   OMNI_INTERFACE=cli      → 直接进控制台(不问, 用于无人值守/脚本驱动)
+#   OMNI_INTERFACE=browser  → 直接进浏览器(不问)
+#   交互式终端              → 询问 "CLI or browser?"
+#   OPEN_BROWSER=0          → 不问, 也不开浏览器(既有行为不变)
+# 控制台以 --adopt-backend 启动: 它「收养」本脚本启动的后端 —— 只观察,
+# 从不发信号, 从不启动也从不拆除。进程树仍然只有一棵, 停止仍然只有本脚本
+# 的 SIGTERM(cleanup), 绝不升级到 kill -9 (Kuzu WAL)。
+INTERFACE="${OMNI_INTERFACE:-}"
+if [ -z "$INTERFACE" ]; then
+  if [ "$OPEN_BROWSER" = "1" ] && [ -t 0 ]; then
+    printf '[omnidroids] CLI or browser? [C/b] '
+    read -r ANSWER || ANSWER=""
+    case "$ANSWER" in
+      c|C|cli|CLI|1) INTERFACE="cli" ;;
+      *)             INTERFACE="browser" ;;
+    esac
+  else
+    INTERFACE="browser"
+  fi
+fi
+
+if [ "$INTERFACE" = "cli" ]; then
+  echo ""
+  info "启动交互式控制台 (收养后端, 不接管它的生命周期)…"
+  info "控制台命令: new · sessions · use · status · chat · logs · report · quit"
+  echo "=============================================================="
+  # 前台运行: Ctrl+C 先到控制台(它自己中止运行), 再到本脚本(cleanup SIGTERM 后端)
+  # OMNI_CONSOLE_ARGS: 无人值守时可给控制台传自己的参数(它的 flags 原样透传),
+  # 例如 ACCEPTANCE_12 §2 记录的本体紧凑约束 --additional-context。默认空 =
+  # 行为与之前完全一致(ticket #69 的默认调用不变)。
+  OMNI_CONSOLE_ARGS="${OMNI_CONSOLE_ARGS:-}"
+  # shellcheck disable=SC2086  # 有意按词拆分: 一个参数一个 flag
+  "$PROJECT_DIR/scratch/omni" interactive --adopt-backend --port 5001 $OMNI_CONSOLE_ARGS
+  CONSOLE_RC=$?
+  echo ""
+  echo "=============================================================="
+  info "控制台已退出 (exit $CONSOLE_RC)；后端仍在运行"
+  info "停止: 在本窗口按 Ctrl+C (SIGTERM，绝不 kill -9)"
+  echo "=============================================================="
+  # 保持前台, 等待被 Ctrl+C(cleanup 里 SIGTERM 停止后端)
+  wait
+  exit 0
+fi
 
 if [ "$OPEN_BROWSER" = "1" ]; then
   open "http://localhost:5001" 2>/dev/null || true

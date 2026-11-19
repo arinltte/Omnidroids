@@ -6,7 +6,6 @@
       <div class="nav-links">
         <router-link to="/" class="nav-link">{{ $t('nav.home') }}</router-link>
         <router-link to="/models" class="nav-link active">MODELS</router-link>
-        <AppearanceSwitcher />
         <LanguageSwitcher />
       </div>
     </nav>
@@ -192,7 +191,6 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
-import AppearanceSwitcher from '../components/AppearanceSwitcher.vue'
 import {
   listModels, startDownload, listDownloads, cancelDownload, setRole,
   unloadModel, deleteModel, getSettings, updateSettings

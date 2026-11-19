@@ -48,6 +48,13 @@ class Config:
     # Optional explicit model name for those steps (must be installed in the Model
     # Manager). Empty = use the role assignment above; when set, it wins.
     REPORT_LLM_MODEL_NAME = (os.environ.get('REPORT_LLM_MODEL_NAME', '') or '').strip()
+    # Word band for the assembled step-4 report (250-350). The band lived only in
+    # docs/ACCEPTANCE_12.md and the spec, so report #49 shipped at 357/368 words
+    # unnoticed; the check that reads these knobs now fails the report loudly,
+    # naming the measured count and the sections that broke the band. Lowered or
+    # raised here (or in .env) with no code change.
+    REPORT_WORD_COUNT_MIN = int(os.environ.get('REPORT_WORD_COUNT_MIN', '250'))
+    REPORT_WORD_COUNT_MAX = int(os.environ.get('REPORT_WORD_COUNT_MAX', '350'))
 
     # ----- 本地 LLM 控制（全部流量经 /v1 转发到本地模型运行时）-----
     # 思考模式：'none'=关闭（快、稳定）| 'high'=开启（更慢、质量更高）| 空=模型默认(默认开启更强推理)
@@ -56,6 +63,41 @@ class Config:
     # 并发推理上限（同一模型实例内的并行请求数）与上下文窗口
     LLM_NUM_PARALLEL = int(os.environ.get('LLM_NUM_PARALLEL', '4'))
     LLM_CONTEXT_LENGTH = int(os.environ.get('LLM_CONTEXT_LENGTH', '8192'))
+    # Explicit output budget for the ontology call (step-1 prepare; #51).
+    # The call used to pass max_tokens=None ("let the provider use its
+    # model-specific limit"), MLXRunner.generate drops a falsy cap, and mlx-vlm
+    # then applies its own DEFAULT_MAX_TOKENS=2048 (mlx_vlm/generate/common.py):
+    # the 1.7B's ontology JSON truncated (finish_reason=length -> HTTP 502) and
+    # the byte-identical retry truncated again. The budget therefore travels
+    # with the request and the runner logs the value it resolved, so it is never
+    # inherited silently. Keep it below LLM_CONTEXT_LENGTH minus the prompt.
+    ONTOLOGY_LLM_MAX_TOKENS = int(os.environ.get('ONTOLOGY_LLM_MAX_TOKENS', '4096'))
+    # The MLX runner's budget when a caller omits max_tokens. mlx_vlm.generate
+    # applies its own DEFAULT_MAX_TOKENS=2048 when the kwarg is absent -- measured
+    # in #51's acceptance run, where LLMClient's JSON retry omitted the cap and the
+    # 1.7B's ontology JSON truncated again -- so the runner resolves one explicit,
+    # config-backed budget and logs it rather than inheriting 2048 silently.
+    # A caller that wants a different budget passes its own (see
+    # ONTOLOGY_LLM_MAX_TOKENS for the step-1 prepare call).
+    MLX_MAX_TOKENS = int(os.environ.get('MLX_MAX_TOKENS', '4096'))
+    # Output budget for a tool-calling caller that named none — the agent
+    # chatter shape (camel/OASIS sends `tools` and no max_tokens). An agent
+    # action is a few hundred tokens, so it must not inherit the JSON-extraction
+    # budget: measured on the WHU acceptance run (20261117T034842Z-9a41fb) the
+    # uncapped 1.7B spent 74% of the simulation's LLM-serving window in 78 calls
+    # >= 30 s each, three of them burning 2500-4096 completion tokens on prose
+    # that never became an action (scratch/agentprobe_base_bcd_*.json). Graphiti
+    # is unaffected — it passes GRAPHITI_LLM_MAX_TOKENS explicitly.
+    AGENT_LLM_MAX_TOKENS = int(os.environ.get('AGENT_LLM_MAX_TOKENS', '512'))
+    # Whether the /v1 proxy speaks OpenAI tool-calling to the local runners.
+    # On (default): the caller's `tools` reach the model, the model's text-form
+    # call is split back out as `tool_calls`, and a tool-calling caller that
+    # named no budget gets AGENT_LLM_MAX_TOKENS. Off restores the old behaviour
+    # exactly (tools dropped, prose answer, MLX_MAX_TOKENS budget) — the
+    # rollback switch and the A/B switch in one.
+    AGENT_LLM_TOOLS = os.environ.get('AGENT_LLM_TOOLS', '1').strip().lower() not in {
+        '0', 'false', 'no', 'off', ''
+    }
     # 单次本地 LLM 调用的超时（秒）。长 prefill 冷启动需要余量；须小于前端上限(1800s)
     LLM_PROXY_TIMEOUT = int(os.environ.get('LLM_PROXY_TIMEOUT', '1800'))
     
@@ -119,6 +161,12 @@ class Config:
     ALLOWED_EXTENSIONS = {'pdf', 'md', 'txt', 'markdown'}
     
     # 文本处理配置
+    # 1500 was measured on the acceptance document (HANDOFF §9 B, 2026-11-09):
+    # 15 chunks instead of 53, so a ~4x faster first pass (~27 min vs ~108 min), but
+    # the yield did NOT hold — 1/4 slice chunks landed (baseline 9/30), the failure
+    # mode broadened from edge calls to node calls, and 40 % of edge calls still
+    # truncated at M1's clamp (27 % of all calls). The owner's stop line was ~20 %.
+    # So 500 stays until the truncation itself is fixed; re-measure the size after.
     DEFAULT_CHUNK_SIZE = 500  # 默认切块大小
     DEFAULT_CHUNK_OVERLAP = 50  # 默认重叠大小
     

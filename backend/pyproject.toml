@@ -56,6 +56,11 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pipreqs>=0.5.0",
+    # The static gates of the pre-commit hook (HANDOFF §9 P1): ruff for the
+    # damage classes a multi-edit leaves behind, pylint for the scoped
+    # missing-member check (--disable=all --enable=E1101 app).
+    "ruff>=0.8",
+    "pylint>=3.3",
 ]
 
 [build-system]
@@ -66,6 +71,25 @@ build-backend = "hatchling.build"
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "ruff>=0.8",
+    "pylint>=3.3",
+]
+
+# ---------------------------------------------------------------------------
+# The repo's static gates (HANDOFF §9 P1) — the pre-commit hook runs these over
+# backend/app. The selection is deliberately the *damage* set, not a style set:
+# the hook exists to catch missing-member errors (the scoped pylint pass) and
+# multi-edit damage (syntax, undefined names, redefinitions) before commit, not
+# to relitigate the codebase's existing style. S110 (try-except-pass) is NOT
+# selected here: it is enforced only on the session/projection paths, by the
+# hook's second, scoped invocation (see scripts/pre-commit).
+[tool.ruff.lint]
+select = [
+    "E9",   # syntax errors (the compileall damage class, caught one step earlier)
+    "E722", # bare except — it also swallows KeyboardInterrupt/SystemExit
+    "F821", # undefined name — the multi-edit casualty (a helper renamed away)
+    "F823", # local variable referenced before assignment
+    "F811", # redefinition of an unused name
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -6,7 +6,6 @@
       <div class="nav-links">
         <router-link to="/models" class="nav-link">{{ $t('nav.models') }}</router-link>
         <LanguageSwitcher />
-        <AppearanceSwitcher />
         <a href="https://github.com/arinltte/Omnidroids" target="_blank" class="github-link">
           {{ $t('nav.visitGithub') }} <span class="arrow">↗</span>
         </a>
@@ -46,7 +45,7 @@
         <div class="hero-right">
           <!-- Logo 区域 -->
           <div class="logo-container">
-            <img src="../assets/logo/MiroFish_logo_left.jpeg" alt="MiroFish Logo" class="hero-logo" />
+            <img src="../assets/logo/MiroFish_logo_left.jpeg" alt="Omnidroids Logo" class="hero-logo" />
           </div>
           
           <button class="scroll-down-btn" @click="scrollToBottom">
@@ -218,7 +217,6 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
-import AppearanceSwitcher from '../components/AppearanceSwitcher.vue'
 
 const router = useRouter()
 

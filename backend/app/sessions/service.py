@@ -12,7 +12,10 @@ Stage ladder: extract → ontology → graph_build → personas → simulate →
 from typing import Any, Dict, List, Optional
 
 from ..models.project import Project, ProjectManager, ProjectStatus
+from ..utils.logger import get_logger
 from .store import SessionStore, get_session_store
+
+logger = get_logger("omnidroids.sessions.service")
 
 
 def derive_stage(project: Project) -> str:
@@ -41,21 +44,33 @@ def _downstream_ids(project: Project) -> Dict[str, str]:
             s for s in SimulationManager().list_simulations()
             if s.project_id == project.project_id
         ]
-    except Exception:
-        pass
+    except Exception as exc:  # P2: log at WARNING, with the type, and continue
+        logger.warning(
+            "session projection: simulation enumeration failed for project %s "
+            "(%s: %s) — the session cannot route past the persona stage",
+            project.project_id, type(exc).__name__, exc,
+        )
     if simulations:
         # the latest simulation for this project
         ids["sim_id"] = simulations[-1].simulation_id
     try:
-        from ..services.report_agent import ReportAgent
+        # ``get_report_by_simulation`` lives on ReportManager (the persisted
+        # report store), not on ReportAgent (the generator): calling it on the
+        # generator raised AttributeError that this except swallowed, so a
+        # finished report never routed the session past ``simulate``.
+        from ..services.report_agent import ReportManager
 
         for simulation in simulations:
-            report = ReportAgent.get_report_by_simulation(simulation.simulation_id)
+            report = ReportManager.get_report_by_simulation(simulation.simulation_id)
             if report:
                 ids["report_id"] = report.report_id
                 break
-    except Exception:
-        pass
+    except Exception as exc:  # P2: log at WARNING, with the type, and continue
+        logger.warning(
+            "session projection: report lookup failed for project %s "
+            "(%s: %s) — the session cannot route past the simulate stage",
+            project.project_id, type(exc).__name__, exc,
+        )
     return ids
 
 
@@ -152,7 +167,16 @@ def sync_all_projects(limit: Optional[int] = 50) -> List[Dict[str, Any]]:
     for project in projects:
         try:
             sync_session(store, project)
-        except Exception:
-            # a broken project must never break the whole main page
+        except Exception as exc:
+            # a broken project must never break the whole main page — and it
+            # must never break it *silently* (P2): the project is named, the
+            # exception type is logged at WARNING, and the remaining projects
+            # are still projected.
+            logger.warning(
+                "session projection: project %s failed to sync (%s: %s) — "
+                "skipped, the remaining projects are still projected",
+                getattr(project, "project_id", "?"),
+                type(exc).__name__, exc,
+            )
             continue
     return store.list_sessions(limit=limit)

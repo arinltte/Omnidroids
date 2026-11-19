@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# The repo's pre-commit gate — deterministic, local, no network.
+#
+# It runs, in order:
+#   1. the documented project gate — the backend test suite (the suite *is* the
+#      gate; `cd backend && .venv/bin/python -m pytest tests/ -q`);
+#   2. `python -m compileall -q app run.py` — the syntax-damage check;
+#   3. `ruff` — over backend/app on the damage rule set configured in
+#      backend/pyproject.toml ([tool.ruff.lint] select: E9/E722/F821/F823/F811),
+#      and a second, scoped pass enforcing S110 (try-except-pass) on the
+#      session/projection paths (P2: no silently swallowed projection
+#      exceptions);
+#   4. the scoped pylint missing-member check —
+#      `python -m pylint --disable=all --enable=E1101 backend/app`.
+#   5. when frontend sources are staged, `npm run build` (the UI gate).
+#
+# What is deliberately NOT here: `mem_check.py` / `bigmodel_eval.py`. They are
+# measurement harnesses (in the git-ignored `scratch/` area) that load model
+# weights for minutes each; they stay a pre-push gate, not a per-commit one.
+#
+# The gates are scoped to the staged file set: a commit touching nothing under
+# backend/ runs no backend gate, one touching nothing under frontend/src runs no
+# UI gate. There is no skip switch — `git commit --no-verify` is the escape
+# hatch, and it is the operator's to use.
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$ROOT" ]; then
+  echo "pre-commit: not inside a git repository" >&2
+  exit 1
+fi
+cd "$ROOT" || exit 1
+
+PY="$ROOT/backend/.venv/bin/python"
+VENV_DIR="$ROOT/backend/.venv"
+
+fail() { echo "pre-commit: FAIL — $*" >&2; exit 1; }
+
+staged_backend=0
+staged_frontend=0
+while IFS= read -r file; do
+  case "$file" in
+    backend/*) staged_backend=1 ;;
+    frontend/src/*) staged_frontend=1 ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+if [ "$staged_backend" -eq 0 ] && [ "$staged_frontend" -eq 0 ]; then
+  echo "pre-commit: nothing under backend/ or frontend/src staged — gates skipped"
+  exit 0
+fi
+
+echo "pre-commit: gates (backend=$staged_backend frontend=$staged_frontend) — this takes a few minutes"
+
+if [ "$staged_backend" -eq 1 ]; then
+  [ -d "$VENV_DIR" ] || fail "backend/.venv missing — run 'cd backend && uv sync --extra mlx' first"
+
+  # 1. the documented project gate: the backend suite
+  echo "pre-commit: [1/4] pytest tests/ (the documented project gate)"
+  ( cd "$ROOT/backend" && "$PY" -m pytest tests/ -q ) || fail "the backend suite is red — fix it or amend"
+
+  # 2. compileall — the syntax-damage check
+  echo "pre-commit: [2/4] compileall"
+  ( cd "$ROOT/backend" && "$PY" -m compileall -q app run.py ) || fail "compileall found syntax damage"
+
+  # 3. ruff — the damage rule set, then the S110 projection-path pass (P2)
+  echo "pre-commit: [3/4] ruff"
+  ( cd "$ROOT/backend" && "$VENV_DIR/bin/ruff" check app ) \
+    || fail "ruff is red (undefined names / bare except / redefinitions)"
+  ( cd "$ROOT/backend" && "$VENV_DIR/bin/ruff" check --select S110 \
+      app/sessions app/models/project.py ) \
+    || fail "ruff S110 is red on the projection paths — a swallowed projection exception (P2)"
+
+  # 4. the scoped pylint missing-member check
+  echo "pre-commit: [4/4] pylint --disable=all --enable=E1101 backend/app"
+  ( cd "$ROOT" && "$PY" -m pylint --disable=all --enable=E1101 backend/app ) \
+    || fail "pylint found a missing-member error in backend/app"
+fi
+
+if [ "$staged_frontend" -eq 1 ]; then
+  echo "pre-commit: [ui] npm run build (frontend/dist is the served SPA)"
+  [ -d "$ROOT/frontend/node_modules" ] || fail "frontend/node_modules missing — run 'npm install' in frontend/ first"
+  ( cd "$ROOT/frontend" && npm run build ) || fail "npm run build failed"
+fi
+
+echo "pre-commit: all gates green"
+exit 0

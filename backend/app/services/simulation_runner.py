@@ -227,6 +227,14 @@ class SimulationRunner:
     # 内存中的运行状态
     _run_states: Dict[str, SimulationRunState] = {}
     _processes: Dict[str, subprocess.Popen] = {}
+    # A run whose rounds are all finished but whose child is still alive serving
+    # IPC interview commands (``run_parallel_simulation.py``'s default
+    # wait-for-commands mode). The monitor has already published the terminal
+    # status for it; the process is kept here so stop / close-env / a restart
+    # can still reach it instead of leaking it. Upstream MiroFish #845/#855/#968
+    # are this same architectural hole; the fix adapted to this repo's shape is
+    # ``_monitor_simulation``'s platforms-complete break plus this registry.
+    _interview_processes: Dict[str, subprocess.Popen] = {}
     _action_queues: Dict[str, Queue] = {}
     _monitor_threads: Dict[str, threading.Thread] = {}
     _stdout_files: Dict[str, Any] = {}  # 存储 stdout 文件句柄
@@ -237,6 +245,16 @@ class SimulationRunner:
     _finalization_locks: Dict[str, threading.Lock] = {}
     _finalization_locks_guard = threading.Lock()
     _manual_stop_requests: set[str] = set()
+
+    # Once every enabled platform has emitted ``simulation_end``, how long the
+    # monitor waits for the child to exit on its own before publishing the
+    # terminal status and leaving it alive for interviews. The window is what
+    # separates "finished its rounds" from "finished and hung": a child that
+    # exits inside it is judged on its exit code, one that stays alive is a
+    # healthy interview server. 60 s measured (a run state that had reached
+    # 100 % stayed "running" for 28 further minutes before the run's own
+    # timeout ended it — HANDOFF §9 L/RUN_STALL_DONE_S).
+    COMPLETED_GRACE_S = 60.0
 
     @classmethod
     def _finalization_lock(cls, simulation_id: str) -> threading.Lock:
@@ -435,6 +453,25 @@ class SimulationRunner:
                 existing and existing.runner_status in active_statuses
             ) or ZepGraphMemoryManager.get_updater(simulation_id) is not None:
                 raise ValueError(f"模拟已在运行或结束处理中: {simulation_id}")
+            # A terminal run can still own a live interview child from its
+            # previous run (the wait-for-commands mode this runner leaves
+            # behind). It must go before a new child is spawned into the same
+            # simulation directory: two children writing one actions.jsonl and
+            # one sqlite db corrupt both, and the new monitor would take over
+            # a handle it does not own.
+            stale_interview = cls._interview_processes.pop(simulation_id, None)
+            if stale_interview is not None and stale_interview.poll() is None:
+                logger.info(
+                    f"关闭上一次运行保留的 Interview 进程: {simulation_id}, "
+                    f"pid={stale_interview.pid}"
+                )
+                try:
+                    cls._terminate_process(stale_interview, simulation_id)
+                except Exception as exc:
+                    logger.warning(
+                        f"关闭旧的 Interview 进程失败: {simulation_id}, error={exc}"
+                    )
+                    stale_interview.poll()
             cls._save_run_state(state)
         
         # 如果启用图谱记忆更新，创建更新器
@@ -637,6 +674,7 @@ class SimulationRunner:
         
         monitor_error: Exception | None = None
         exit_code: int | None = None
+        rounds_finished = False
         try:
             while process.poll() is None:  # 进程仍在运行
                 # 读取 Twitter 动作日志
@@ -653,15 +691,57 @@ class SimulationRunner:
                 
                 # 更新状态
                 cls._save_run_state(state)
+
+                # Every enabled platform has emitted simulation_end. The child
+                # does not exit by itself — its default wait-for-commands mode
+                # keeps the OASIS environment alive for post-simulation
+                # interviews — so waiting for the exit here would leave
+                # runner_status "running" forever and the report route would
+                # refuse the run (MiroFish #845/#855/#968). The rounds are
+                # therefore the completion signal; a bounded grace window below
+                # still lets a genuinely hung child be caught by its exit code.
+                if cls._check_all_platforms_completed(state):
+                    rounds_finished = True
+                    logger.info(
+                        f"所有平台已完成轮次，等待子进程退出以判定终态: {simulation_id}"
+                    )
+                    grace_deadline = time.time() + cls.COMPLETED_GRACE_S
+                    while process.poll() is None and time.time() < grace_deadline:
+                        time.sleep(1.0)
+                    if process.poll() is not None:
+                        exit_code = process.returncode
+                        logger.info(
+                            f"模拟子进程在宽限期内退出: {simulation_id}, "
+                            f"exit_code={exit_code}"
+                        )
+                    else:
+                        logger.info(
+                            f"模拟轮次已完成，子进程保持存活以支持 Interview: "
+                            f"{simulation_id}"
+                        )
+                    break
                 time.sleep(2)
             
             # 进程结束后，最后读取一次日志
-            if os.path.exists(twitter_actions_log):
-                cls._read_action_log(twitter_actions_log, twitter_position, state, "twitter")
-            if os.path.exists(reddit_actions_log):
-                cls._read_action_log(reddit_actions_log, reddit_position, state, "reddit")
-            
-            exit_code = process.returncode
+            if not rounds_finished:
+                if os.path.exists(twitter_actions_log):
+                    cls._read_action_log(twitter_actions_log, twitter_position, state, "twitter")
+                if os.path.exists(reddit_actions_log):
+                    cls._read_action_log(reddit_actions_log, reddit_position, state, "reddit")
+                exit_code = process.returncode
+            else:
+                # The action-log tail written between the last poll and the
+                # child's simulation_end must be read exactly once, the same
+                # way the exit path reads it.
+                if os.path.exists(twitter_actions_log):
+                    twitter_position = cls._read_action_log(
+                        twitter_actions_log, twitter_position, state, "twitter"
+                    )
+                if os.path.exists(reddit_actions_log):
+                    reddit_position = cls._read_action_log(
+                        reddit_actions_log, reddit_position, state, "reddit"
+                    )
+                cls._save_run_state(state)
             
         except Exception as e:
             logger.error(f"监控线程异常: {simulation_id}, error={str(e)}")
@@ -690,7 +770,8 @@ class SimulationRunner:
                     if not manual_stop and monitor_error is not None:
                         desired_status = RunnerStatus.FAILED
                         error_message = str(monitor_error)
-                    elif not manual_stop and exit_code != 0:
+                    elif (not manual_stop and exit_code is not None
+                          and exit_code != 0):
                         desired_status = RunnerStatus.FAILED
                         main_log_path = os.path.join(sim_dir, "simulation.log")
                         error_info = ""
@@ -745,7 +826,27 @@ class SimulationRunner:
                 cls._manual_stop_requests.discard(simulation_id)
             
             # 清理进程资源
-            cls._processes.pop(simulation_id, None)
+            final_status = (
+                cls.get_run_state(simulation_id).runner_status
+                if cls.get_run_state(simulation_id) is not None
+                else None
+            )
+            still_alive = (
+                process is not None and process.poll() is None
+                and rounds_finished
+                and final_status == RunnerStatus.COMPLETED
+            )
+            if still_alive:
+                # A completed run whose child is serving interviews: keep the
+                # handle reachable (stop / close-env / restart), drop it from
+                # the live-run registry so nothing reports it as running.
+                cls._interview_processes[simulation_id] = process
+                cls._processes.pop(simulation_id, None)
+                logger.info(
+                    f"保留 Interview 进程句柄: {simulation_id}, pid={process.pid}"
+                )
+            else:
+                cls._processes.pop(simulation_id, None)
             cls._action_queues.pop(simulation_id, None)
             cls._monitor_threads.pop(simulation_id, None)
             
@@ -979,6 +1080,20 @@ class SimulationRunner:
                     RunnerStatus.FAILED,
                 }
             )
+            # A terminal run can still own a live interview environment. Closing
+            # it is a legitimate request (the UI has no separate close-env route
+            # here), so the refusal below must not fire for it — but the run's
+            # own terminal status is kept: its rounds are done and its result
+            # stands, only the child goes away.
+            interview_process = cls._interview_processes.get(simulation_id)
+            closing_interviews_only = (
+                interview_process is not None
+                and interview_process.poll() is None
+                and state.runner_status in {
+                    RunnerStatus.COMPLETED,
+                    RunnerStatus.FAILED,
+                }
+            )
             if (
                 state.runner_status not in [
                     RunnerStatus.STARTING,
@@ -987,10 +1102,12 @@ class SimulationRunner:
                     RunnerStatus.STOPPING,
                 ]
                 and not retrying_finalization
+                and not closing_interviews_only
             ):
                 raise ValueError(
                     f"模拟未在运行: {simulation_id}, status={state.runner_status}"
                 )
+            prior_status = state.runner_status
 
             state.runner_status = RunnerStatus.STOPPING
             cls._manual_stop_requests.add(simulation_id)
@@ -998,7 +1115,7 @@ class SimulationRunner:
             cls._sync_simulation_status(simulation_id, RunnerStatus.STOPPING)
 
             # 终止进程
-            process = cls._processes.get(simulation_id)
+            process = cls._processes.get(simulation_id) or interview_process
             if process and process.poll() is None:
                 try:
                     cls._terminate_process(process, simulation_id)
@@ -1030,6 +1147,7 @@ class SimulationRunner:
                 + 5,
             )
             monitor.join(timeout=wait_timeout)
+            cls._interview_processes.pop(simulation_id, None)
             if monitor.is_alive():
                 # The monitor still owns finalization and may be inside one
                 # bounded HTTP request. Do not block on or overwrite its lock;
@@ -1060,22 +1178,34 @@ class SimulationRunner:
                             state.error,
                         )
                         raise RuntimeError(state.error) from error
-                state.runner_status = RunnerStatus.STOPPED
+                if closing_interviews_only:
+                    # Only the interview environment was closed; the run keeps
+                    # the terminal status the monitor already published, and
+                    # with it the completion time it published then.
+                    state.runner_status = prior_status
+                else:
+                    state.runner_status = RunnerStatus.STOPPED
+                    state.error = None
+                    state.completed_at = datetime.now().isoformat()
                 state.twitter_running = False
                 state.reddit_running = False
-                state.completed_at = datetime.now().isoformat()
-                state.error = None
                 cls._save_run_state(state)
                 cls._sync_simulation_status(
                     simulation_id,
-                    RunnerStatus.STOPPED,
+                    state.runner_status,
+                    state.error,
                 )
+                cls._interview_processes.pop(simulation_id, None)
                 cls._manual_stop_requests.discard(simulation_id)
 
         state = cls.get_run_state(simulation_id) or state
         if state.runner_status == RunnerStatus.FAILED:
             raise RuntimeError(state.error or "模拟停止失败")
-        if state.runner_status != RunnerStatus.STOPPED:
+        if state.runner_status not in {
+            RunnerStatus.STOPPED,
+            RunnerStatus.COMPLETED,
+            RunnerStatus.FAILED,
+        }:
             raise RuntimeError(
                 f"模拟停止未达到终态: {simulation_id}, status={state.runner_status}"
             )
@@ -1461,6 +1591,7 @@ class SimulationRunner:
         simulation_ids = sorted(
             set(cls._processes)
             | set(cls._graph_memory_enabled)
+            | set(cls._interview_processes)
             | updater_ids
         )
         if not simulation_ids:
@@ -1478,6 +1609,14 @@ class SimulationRunner:
                 state = cls.get_run_state(simulation_id)
                 updater = ZepGraphMemoryManager.get_updater(simulation_id)
                 process = cls._processes.get(simulation_id)
+                # A completed run's interview child is not in _processes, so
+                # without this it would survive the backend's own shutdown.
+                if process is None:
+                    process = cls._interview_processes.get(simulation_id)
+                if process is not None and process.poll() is not None:
+                    process = None
+                if process is None:
+                    cls._interview_processes.pop(simulation_id, None)
 
                 if state is None:
                     # Missing/corrupt state is exceptional, but retain the

@@ -64,6 +64,31 @@ def _is_response_format_unsupported(error: Exception) -> bool:
     )
 
 
+def _is_prompt_too_long_error(error: Exception) -> bool:
+    """Detect the local runtime's context-guard rejection (#51).
+
+    ``MLXRunner`` answers an over-window prompt by raising before generation;
+    the /v1 proxy passes that text through as a JSON body tagged
+    ``"type": "prompt_too_long"``. Only the machine-readable tag is matched --
+    the message itself is surfaced verbatim, because a silently inherited
+    default is what this defect was about.
+    """
+
+    body = getattr(error, "body", None)
+    if not isinstance(body, dict):
+        return False
+    details = body.get("error", body)
+    if not isinstance(details, dict):
+        return False
+    return str(details.get("type") or "").strip().lower() == "prompt_too_long"
+
+
+def _provider_error_text(error: Exception) -> str:
+    """The provider's message verbatim (the SDK puts it on ``message``)."""
+
+    return str(getattr(error, "message", "") or "").strip() or str(error)
+
+
 def _clean_chat_text(content: str) -> str:
     """Remove common reasoning wrappers and an outer Markdown JSON fence."""
 
@@ -205,6 +230,18 @@ class LLMClient:
                         )
                         response_format = None
                         continue
+                    if _is_prompt_too_long_error(error):
+                        # #51: the context guard's message must reach the
+                        # caller verbatim. app/api/graph.py surfaces
+                        # str(LLMResponseError) to the operator (status 502,
+                        # project FAILED) while it collapses a bare
+                        # APIStatusError to "LLM provider request failed
+                        # (HTTP 502)" -- so an un-routed guard rejection is
+                        # exactly the bare-502 outcome that must not happen.
+                        # Not retryable: the prompt will not shrink by itself.
+                        raise LLMResponseError(
+                            _provider_error_text(error)
+                        ) from error
                     raise
                 break
 
@@ -217,14 +254,36 @@ class LLMClient:
 
                 # A caller-supplied cap is the common cause of a partial JSON
                 # object. Omit it for the one bounded retry so the provider can
-                # use its model-specific output limit.
+                # use its model-specific output limit -- but "omitted" is only
+                # true for a provider that HAS one. The local MLX runner has
+                # none: MLXRunner.generate resolves Config.MLX_MAX_TOKENS and
+                # sends that, so "no cap" locally means this number, never
+                # "uncapped". Say so. This log line is what an operator reads
+                # during a 502, and when the local default sits BELOW the budget
+                # that just truncated the retry is re-sent at a smaller number
+                # and truncates again -- the shape #51's probe measured. Name
+                # the real budget and the knob to raise, so a repeated
+                # truncation is attributable to the model's own verbosity or to
+                # the knob, not to a missing cap.
                 had_token_cap = request_max_tokens is not None
+                truncated_budget = request_max_tokens
                 request_max_tokens = None
+                local_default = int(Config.MLX_MAX_TOKENS)
+                if had_token_cap:
+                    cap_note = (
+                        f" (the truncated attempt asked for {truncated_budget} "
+                        f"tokens; a provider with no model-specific limit uses "
+                        f"MLX_MAX_TOKENS={local_default} instead, so if that is "
+                        f"below {truncated_budget} raise MLX_MAX_TOKENS)"
+                    )
+                else:
+                    cap_note = ""
                 logger.warning(
                     "LLM returned unusable JSON (finish_reason=%s); "
-                    "retrying content generation%s",
+                    "retrying content generation with the provider's own "
+                    "output limit%s",
                     error.finish_reason or "unknown",
-                    " without an output token cap" if had_token_cap else "",
+                    cap_note,
                 )
 
         if last_error is not None:  # pragma: no cover - defensive loop guard

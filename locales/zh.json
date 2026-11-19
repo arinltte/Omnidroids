@@ -26,19 +26,13 @@
     "files": "个文件"
   },
   "meta": {
-    "title": "MiroFish - 预测万物",
-    "description": "MiroFish - 社交媒体舆论模拟系统"
+    "title": "Omnidroids - 预测万物",
+    "description": "Omnidroids - 社交媒体舆论模拟系统"
   },
   "nav": {
     "visitGithub": "访问我们的Github主页",
     "home": "首页",
     "models": "模型"
-  },
-  "appearance": {
-    "label": "外观",
-    "system": "跟随系统",
-    "light": "浅色",
-    "dark": "深色"
   },
   "sessions": {
     "title": "会话",
@@ -73,7 +67,7 @@
     "heroTitle1": "上传任意报告",
     "heroTitle2": "即刻推演未来",
     "heroDesc": "即使只有一段文字，{brand} 也能基于其中的现实种子，全自动生成与之对应的至多{agentScale}构成的平行世界。通过上帝视角注入变量，在复杂的群体交互中寻找动态环境下的{optimalSolution}",
-    "heroDescBrand": "MiroFish",
+    "heroDescBrand": "Omnidroids",
     "heroDescAgentScale": "百万级Agent",
     "heroDescOptimalSolution": "\"局部最优解\"",
     "slogan": "让未来在 Agent 群中预演，让决策在百战后胜出",
@@ -102,7 +96,7 @@
     "inputParams": "输入参数",
     "simulationPrompt": ">_ 02 / 模拟提示词",
     "promptPlaceholder": "// 用自然语言输入模拟或预测需求（例.武大若发布撤销肖某处分的公告，会引发什么舆情走向）",
-    "engineBadge": "引擎: MiroFish-V1.0",
+    "engineBadge": "引擎: Omnidroids-V1.0",
     "startEngine": "启动引擎",
     "initializing": "初始化中..."
   },
@@ -186,7 +180,7 @@
     "setupComplete": "准备完成",
     "setupCompleteDesc": "模拟环境已准备完成，可以开始运行模拟",
     "roundsConfig": "模拟轮数设定",
-    "roundsConfigDesc": "MiroFish 自动规划推演现实 {hours} 小时，每轮代表现实 {minutesPerRound} 分钟时间流逝",
+    "roundsConfigDesc": "Omnidroids 自动规划推演现实 {hours} 小时，每轮代表现实 {minutesPerRound} 分钟时间流逝",
     "customToggle": "自定义",
     "roundsUnit": "轮",
     "estimatedDuration": "若Agent规模为100：预计耗时约 {minutes} 分钟",
@@ -298,7 +292,7 @@
     "selectChatTarget": "选择对话对象",
     "sendSurvey": "发送问卷调查到世界中",
     "reportAgentChat": "Report Agent - Chat",
-    "reportAgentDesc": "报告生成智能体的快速对话版本，可调用 4 种专业工具，拥有MiroFish的完整记忆",
+    "reportAgentDesc": "报告生成智能体的快速对话版本，可调用 4 种专业工具，拥有Omnidroids的完整记忆",
     "toolInsightForge": "InsightForge 深度归因",
     "toolInsightForgeDesc": "对齐现实世界种子数据与模拟环境状态，结合Global/Local Memory机制，提供跨时空的深度归因分析",
     "toolPanoramaSearch": "PanoramaSearch 全景追踪",
@@ -638,6 +632,8 @@
     "sectionNoPrefix": "章节 {title} 未检测到 'Final Answer:' 前缀，直接采纳LLM输出作为最终内容（工具调用: {count}次）",
     "sectionMaxIter": "章节 {title} 达到最大迭代次数，强制生成",
     "sectionForceFailed": "章节 {title} 强制收尾时 LLM 返回 None，使用默认错误提示",
+    "sectionBodyArtefact": "章节 {title} 正文被拒绝: {reason}（#53 章节正文卫生检查）",
+    "sectionRegenerated": "章节 {title} 在被拒绝后重新生成成功（#53）",
     "sectionGenFailedContent": "（本章节生成失败：LLM 返回空响应，请稍后重试）",
     "outlineSavedToFile": "大纲已保存到文件: {reportId}/outline.json",
     "sectionSaved": "章节已保存: {reportId}/section_{sectionNum}.md",
